@@ -14,6 +14,7 @@ const {
 const Database = require('better-sqlite3');
 const { VALID_POKEMON } = require('./validPokemon');
 const { CHOICE_GROUPS } = require('./choiceGroups');
+const { RARE_POKEMON } = require('./rarepokemon');
 
 const EPHEMERAL = 64;
 
@@ -69,6 +70,28 @@ const FIXED_REMOVE_TAIL = [
   'Paradox',
 ];
 
+const ALL_FORM_POKEMON = new Set([
+  'basculin',
+  'cramorant',
+  'cyclizar',
+  'furfrou',
+  'lycanroc',
+  'oricorio',
+  'tatsugiri',
+  'squawkabilly',
+  'unown',
+  'burmy',
+  'castform',
+  'cherrim',
+  'darmanitan',
+  'flabebe',
+  'floette',
+  'florges',
+  'rotom',
+  'vivillon',
+  'wormadam',
+]);
+
 const dbPath = process.env.DB_PATH || 'queue.db';
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
@@ -96,6 +119,7 @@ CREATE TABLE IF NOT EXISTS slots (
   claimed_at TEXT,
   choice_group_name TEXT,
   chosen_rare TEXT,
+  ffa_pokemon TEXT,
   PRIMARY KEY (guild_id, slot_key)
 );
 
@@ -135,10 +159,19 @@ function ensureColumn(tableName, columnName, sqlTypeWithDefault) {
   }
 }
 
+function formatReserveOutputName(pokemonName) {
+  const normalized = normalizePokemonName(pokemonName);
+  if (ALL_FORM_POKEMON.has(normalized)) {
+    return `all ${normalized}`;
+  }
+  return normalized;
+}
+
 function ensureSchema() {
   ensureColumn('queue_state', 'phase', `TEXT NOT NULL DEFAULT 'staff'`);
   ensureColumn('queue_state', 'booster_locked', `INTEGER NOT NULL DEFAULT 1`);
   ensureColumn('slots', 'chosen_rare', `TEXT`);
+  ensureColumn('slots', 'ffa_pokemon', `TEXT`);
 
   const historyColumns = db.prepare(`PRAGMA table_info(user_claim_history)`).all().map((column) => column.name);
   if (historyColumns.includes('last_slot_number')) {
@@ -279,6 +312,18 @@ function getLastClaimedSlot(guildId, userId) {
   return row?.last_slot_key ?? null;
 }
 
+function getSlotFfaPokemon(slot) {
+  return parsePokemonList(slot?.ffa_pokemon);
+}
+
+function saveSlotFfaPokemon(guildId, slotKey, pokemonList) {
+  db.prepare(`
+    UPDATE slots
+    SET ffa_pokemon = ?
+    WHERE guild_id = ? AND slot_key = ?
+  `).run(serializePokemonList(pokemonList), guildId, slotKey);
+}
+
 function setLastClaimedSlot(guildId, userId, slotKey) {
   db.prepare(`
     INSERT INTO user_claim_history (guild_id, user_id, last_slot_key)
@@ -295,7 +340,8 @@ function resetSlot(guildId, slotKey) {
         pokemon_names = ?,
         claimed_at = NULL,
         choice_group_name = NULL,
-        chosen_rare = NULL
+        chosen_rare = NULL,
+        ffa_pokemon = NULL
     WHERE guild_id = ? AND slot_key = ?
   `).run(serializePokemonList([]), guildId, slotKey);
 
@@ -328,6 +374,19 @@ function getClaimedAtValue(slot) {
   return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
 }
 
+function getOwnedPickableSlots(guildId, userId) {
+  return getSlots(guildId).filter(
+    (slot) =>
+      slot.user_id === userId &&
+      !isChoiceSlot(slot.slot_key)
+  );
+}
+
+function getNextOwnedEmptyPickableSlot(guildId, userId) {
+  const ownedSlots = getOwnedPickableSlots(guildId, userId);
+  return ownedSlots.find((slot) => parsePokemonList(slot.pokemon_names).length === 0) || null;
+}
+
 function slotOwnsPokemon(slot, pokemonName) {
   if (!slot?.user_id) return false;
 
@@ -335,7 +394,10 @@ function slotOwnsPokemon(slot, pokemonName) {
   if (chosenPokemon.includes(pokemonName)) return true;
 
   if (isChoiceSlot(slot.slot_key) && slot.choice_group_name) {
-    return getChoiceGroupByName(slot.choice_group_name).includes(pokemonName);
+    const groupPokemon = getChoiceGroupByName(slot.choice_group_name);
+    const ffaPokemon = getSlotFfaPokemon(slot);
+
+    return groupPokemon.includes(pokemonName) && !ffaPokemon.includes(pokemonName);
   }
 
   return false;
@@ -373,6 +435,137 @@ function getChoiceGroupConflicts(guildId, slotKey, groupName) {
   return conflicts;
 }
 
+function getAllOwnedPokemonForSlot(slot) {
+  if (!slot?.user_id) return [];
+
+  const owned = new Set();
+
+  for (const pokemonName of parsePokemonList(slot.pokemon_names)) {
+    owned.add(pokemonName);
+  }
+
+  if (isChoiceSlot(slot.slot_key) && slot.choice_group_name) {
+    for (const pokemonName of getChoiceGroupByName(slot.choice_group_name)) {
+      owned.add(pokemonName);
+    }
+  }
+
+  return [...owned];
+}
+
+function buildPokemonOwnershipMap(guildId) {
+  const claimedSlots = getSlots(guildId)
+    .filter((slot) => slot.user_id)
+    .sort((a, b) => {
+      const timeDiff = getClaimedAtValue(a) - getClaimedAtValue(b);
+      if (timeDiff !== 0) return timeDiff;
+      return a.slot_key.localeCompare(b.slot_key);
+    });
+
+  const firstOwnerByPokemon = new Map();
+
+  for (const slot of claimedSlots) {
+    for (const pokemonName of getAllOwnedPokemonForSlot(slot)) {
+      if (!firstOwnerByPokemon.has(pokemonName)) {
+        firstOwnerByPokemon.set(pokemonName, slot.slot_key);
+      }
+    }
+  }
+
+  return firstOwnerByPokemon;
+}
+
+function reconcilePokemonOwnership(guildId) {
+  const firstOwnerByPokemon = buildPokemonOwnershipMap(guildId);
+  const claimedSlots = getSlots(guildId).filter((slot) => slot.user_id);
+
+  for (const slot of claimedSlots) {
+    if (isChoiceSlot(slot.slot_key)) continue;
+
+    const currentPokemon = parsePokemonList(slot.pokemon_names);
+    const filteredPokemon = currentPokemon.filter(
+      (pokemonName) => firstOwnerByPokemon.get(pokemonName) === slot.slot_key
+    );
+
+    if (filteredPokemon.length !== currentPokemon.length) {
+      savePokemonList(guildId, slot.slot_key, filteredPokemon);
+    }
+  }
+}
+
+function mentionUser(userId) {
+  return userId ? `<@${userId}>` : 'Nobody';
+}
+
+function getSlotOwnerId(guildId, slotKey) {
+  const slot = getSlot(guildId, slotKey);
+  return slot?.user_id ?? null;
+}
+
+function findChoiceBuyerByKeyword(guildId, keyword) {
+  const slots = getSlots(guildId);
+  const lowerKeyword = keyword.toLowerCase();
+
+  const match = slots.find(
+    (slot) =>
+      isChoiceSlot(slot.slot_key) &&
+      slot.user_id &&
+      slot.choice_group_name &&
+      slot.choice_group_name.toLowerCase().includes(lowerKeyword)
+  );
+
+  return match?.user_id ?? null;
+}
+
+function buildFinishSummaryLines(guildId) {
+  const slots = getSlots(guildId);
+
+  const chosenRareSlots = slots.filter(
+    (slot) => CHOOSE_RARE_SLOT_KEYS.has(slot.slot_key) && slot.chosen_rare
+  );
+
+  const chosenRareText = chosenRareSlots.length
+    ? chosenRareSlots.map((slot) => slot.chosen_rare.trim()).join(', ')
+    : 'None';
+
+  const rareOwnerId = getSlotOwnerId(guildId, 'rare');
+  const regionalOwnerId = getSlotOwnerId(guildId, 'regional');
+  const gmaxOwnerId = getSlotOwnerId(guildId, 'gmax');
+
+  const choiceParadoxBuyerId = findChoiceBuyerByKeyword(guildId, 'paradox');
+  const choicePikasBuyerId =
+    findChoiceBuyerByKeyword(guildId, 'pika') ||
+    findChoiceBuyerByKeyword(guildId, 'pikas');
+
+  const lines = [];
+
+  lines.push(
+    `Chosen rares taken: ${chosenRareText} (${mentionUser(rareOwnerId)})`
+  );
+
+  if (choiceParadoxBuyerId) {
+    lines.push(
+      `Choice paradox taken this round, please remove from list (${mentionUser(choiceParadoxBuyerId)})`
+    );
+  } else {
+    lines.push(
+      `Choice paradox not taken this round, paradox given to (${mentionUser(rareOwnerId)})`
+    );
+  }
+
+  if (choicePikasBuyerId) {
+    lines.push(
+      `Choice pikas taken this round please remove pikachu (${mentionUser(choicePikasBuyerId)})`
+    );
+  } else {
+    lines.push(
+      `Choice pikas not taken, Normal Pikachu goes to ${mentionUser(gmaxOwnerId)} and partner pikachu goes to ${mentionUser(regionalOwnerId)}`
+    );
+  }
+
+  return lines;
+}
+
 function getCurrentHolderMentions(guildId) {
   return [...new Set(getSlots(guildId).filter((slot) => slot.user_id).map((slot) => `<@${slot.user_id}>`))].join(' ');
 }
@@ -390,21 +583,31 @@ function buildSummaryFromCurrentSlots(guildId) {
     }
 
     if (isChoiceSlot(slot.slot_key) && slot.choice_group_name) {
+      const ffaPokemon = getSlotFfaPokemon(slot);
+
       const groupPokemon = getChoiceGroupByName(slot.choice_group_name)
+        .filter((name) => !ffaPokemon.includes(name))
         .filter((name) => name !== MISSINGNO_NAME)
-        .map(prettyPokemonName)
+        .map((name) => prettyPokemonName(formatReserveOutputName(name)))
         .sort((a, b) => a.localeCompare(b));
 
-      choiceLines.push(`${prettyGroupName(slot.choice_group_name)}: ${groupPokemon.join(', ') || 'None'}`);
+      choiceLines.push(`**${prettyGroupName(slot.choice_group_name)}:** ${groupPokemon.join(', ') || 'None'}`);
+      if (ffaPokemon.length) {
+      const formattedFfa = ffaPokemon
+        .map((name) => prettyPokemonName(formatReserveOutputName(name)))
+        .sort((a, b) => a.localeCompare(b));
+
+      choiceLines.push(`**ffa ${prettyGroupName(slot.choice_group_name)}:** ${formattedFfa.join(', ')}`);
+    }
       removePokemon.push(...groupPokemon);
       continue;
     }
 
     for (const pokemonName of parsePokemonList(slot.pokemon_names)) {
       if (pokemonName === MISSINGNO_NAME) continue;
-      const pretty = prettyPokemonName(pokemonName);
-      reservePokemon.push(pretty);
-      removePokemon.push(pretty);
+      const formatted = formatReserveOutputName(pokemonName);
+      reservePokemon.push(prettyPokemonName(formatted));
+      removePokemon.push(prettyPokemonName(formatted));
     }
   }
 
@@ -433,6 +636,7 @@ function buildSummaryFromCurrentSlots(guildId) {
       pokemon_names: parsePokemonList(slot.pokemon_names),
       choice_group_name: slot.choice_group_name,
       chosen_rare: slot.chosen_rare,
+      ffa_pokemon: getSlotFfaPokemon(slot),
       notes: getSlotNotes(guildId, slot.slot_key).map((n) => n.note_text),
     })),
   };
@@ -509,7 +713,9 @@ function buildQueueEmbedFromSlots(slots, options = {}) {
       `${mainFilled}/${MAIN_SLOT_COUNT} slots filled\n` +
       `Boosters + Donor ${boosterFilled}/3 filled\n` +
       `Booster status: **${boosterLocked ? 'Locked' : 'Unlocked'}**\n` +
-      `Use /pick for normal slots. Use /choosegroup for choice slots.`
+      `Use /pick for normal slots. Use /choosegroup for choice slots. Use /Chooserare for Choice and Gmax rare.\n` +
+      `Eevee loves you and wants everyone to shine!\n` +
+      ` --------------------------------------------------- `
     )
     .setColor(0x5865f2);
 
@@ -520,6 +726,15 @@ function buildQueueEmbedFromSlots(slots, options = {}) {
 
     if (isChoiceSlot(slot.slot_key)) {
       value += `\nGroup: ${slot.choice_group_name ? prettyGroupName(slot.choice_group_name) : 'Not selected'}`;
+
+      const ffaPokemon = getSlotFfaPokemon(slot);
+      if (ffaPokemon.length) {
+        value += `\nFFA: ${ffaPokemon.map(prettyPokemonName).join(', ')}`;
+        }
+
+    if (slot.chosen_rare) {
+        value += `\nChosen rare: ${slot.chosen_rare}`;
+      }
     } else {
       value += `\nPokemon: ${chosenPokemon.length ? chosenPokemon.map(prettyPokemonName).join(', ') : 'Not set'}`;
     }
@@ -564,6 +779,64 @@ function getOpenButtonStyle(slotKey) {
   if (BOOSTER_SLOT_KEYS.has(slotKey)) return ButtonStyle.Secondary;
   if (slotKey === 'org' || slotKey === 'reserver') return ButtonStyle.Primary;
   return ButtonStyle.Success;
+}
+
+function getFinishedSlotOwnedPokemon(slotSnapshot) {
+  const names = [];
+
+  if (Array.isArray(slotSnapshot.pokemon_names)) {
+    for (const pokemonName of slotSnapshot.pokemon_names) {
+      names.push(pokemonName);
+    }
+  }
+
+  if (isChoiceSlot(slotSnapshot.slot_key) && slotSnapshot.choice_group_name) {
+    const ffaPokemon = Array.isArray(slotSnapshot.ffa_pokemon)
+      ? slotSnapshot.ffa_pokemon
+      : [];
+
+    for (const pokemonName of getChoiceGroupByName(slotSnapshot.choice_group_name)) {
+      if (!ffaPokemon.includes(pokemonName)) {
+        names.push(pokemonName);
+      }
+    }
+  }
+
+  if (slotSnapshot.chosen_rare) {
+    names.push(normalizePokemonName(slotSnapshot.chosen_rare));
+  }
+
+  return [...new Set(names)];
+}
+
+function buildReservePingsEmbed(summary) {
+  const pokemonByUser = new Map();
+
+  for (const slot of summary.slotSnapshot || []) {
+    if (!slot.user_id) continue;
+
+    const ownedPokemon = getFinishedSlotOwnedPokemon(slot)
+      .map((name) => prettyPokemonName(formatReserveOutputName(name)));
+
+    if (!pokemonByUser.has(slot.user_id)) {
+      pokemonByUser.set(slot.user_id, new Set());
+    }
+
+    const userSet = pokemonByUser.get(slot.user_id);
+    for (const pokemonName of ownedPokemon) {
+      userSet.add(pokemonName);
+    }
+  }
+
+  const lines = [...pokemonByUser.entries()].map(([userId, pokemonSet]) => {
+    const pokemonList = [...pokemonSet].sort((a, b) => a.localeCompare(b));
+    return `${pokemonList.join(', ')} <@${userId}>`;
+  });
+
+  return new EmbedBuilder()
+    .setTitle('Reserve Pings')
+    .setDescription(lines.length ? lines.join('\n') : 'No stored Pokemon ownership found.')
+    .setColor(0x5865f2);
 }
 
 function buildButtons(guildId) {
@@ -674,15 +947,15 @@ async function finishQueueAndAnnounce(guild, finishedBy) {
   saveFinishedHistory(guild.id, summary);
 
   const mentions = summary.holderIds.map((id) => `<@${id}>`).join(' ');
-  await channel.send({
+
+  const finishLines = buildFinishSummaryLines(guild.id);
+    await channel.send({
     content:
-      `${mentions}\nQueue finished by <@${finishedBy}>.\n\n` +
-      `Chosen rares: ${summary.chosenRares}\n` +
-      `Choice pikas taken? ${summary.choicePikasTaken}\n` +
-      `Choice paradox taken? ${summary.choiceParadoxTaken}`,
+      `${mentions}\n**Please buy your channels**, org finished by <@${finishedBy}>.\n\n` +
+      finishLines.join('\n'),
   });
 
-  await sendReadinessPost(channel, guild.id, summary.holderIds, 'Readiness check opened.');
+  await sendReadinessPost(channel, guild.id, summary.holderIds, '**React when done buying:**');
 
   db.prepare(`UPDATE queue_state SET is_active = 0, phase = 'finished' WHERE guild_id = ?`).run(guild.id);
   return true;
@@ -784,15 +1057,38 @@ const commands = [
     .addStringOption((option) => option.setName('rare').setDescription('Rare name').setRequired(true)),
 
   new SlashCommandBuilder()
+    .setName('setffa')
+    .setDescription('Set FFA Pokemon for your claimed choice slot')
+    .addStringOption((option) =>
+    addChoiceSlotChoices(option.setName('slot').setDescription('Your claimed choice slot'))
+    )
+    .addStringOption((option) =>
+      option.setName('pokemon')
+        .setDescription('Comma-separated Pokemon names to make free')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
     .setName('pick')
-    .setDescription('Assign a Pokemon to one of your claimed normal slots')
-    .addStringOption((option) => addAllSlotChoices(option.setName('slot').setDescription('Your claimed slot')))
-    .addStringOption((option) => option.setName('pokemon1').setDescription('Pokemon name').setRequired(true)),
+    .setDescription('Assign a Pokemon to your next available owned normal slot')
+    .addStringOption((option) =>
+      option.setName('pokemon')
+        .setDescription('Pokemon name')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('clearres')
+    .setDescription('Clear all chosen Pokemon from your currently owned normal slots'),  
 
   new SlashCommandBuilder()
     .setName('withdraw')
     .setDescription('Release one of your claimed slots')
     .addStringOption((option) => addAllSlotChoices(option.setName('slot').setDescription('Slot to release'))),
+
+  new SlashCommandBuilder()
+    .setName('reservepings')
+    .setDescription('Show taken Pokemon and their owners from the latest finished round'),  
 
   new SlashCommandBuilder()
     .setName('transfer')
@@ -948,6 +1244,62 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
 
+      if (interaction.commandName === 'setffa') {
+        const state = getQueueState(guild.id);
+        if (!state) {
+          return interaction.reply({ content: 'No active queue right now.', flags: EPHEMERAL });
+        }
+
+        const slotKey = interaction.options.getString('slot', true);
+        const rawList = interaction.options.getString('pokemon', true);
+        const slot = getSlot(guild.id, slotKey);
+
+        if (!isChoiceSlot(slotKey)) {
+          return interaction.reply({
+            content: 'FFA can only be set on choice slots.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        if (!slot || slot.user_id !== user.id) {
+          return interaction.reply({
+            content: 'You can only set FFA for your own claimed choice slot.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        if (!slot.choice_group_name) {
+          return interaction.reply({
+            content: 'Choose a group first with /choosegroup.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const groupPokemon = getChoiceGroupByName(slot.choice_group_name);
+        const requestedPokemon = rawList
+          .split(',')
+          .map((name) => normalizePokemonName(name))
+          .filter(Boolean);
+
+        const invalidPokemon = requestedPokemon.filter((name) => !groupPokemon.includes(name));
+        if (invalidPokemon.length) {
+          return interaction.reply({
+            content: `These Pokemon are not in ${prettyGroupName(slot.choice_group_name)}: ${invalidPokemon.map(prettyPokemonName).join(', ')}`,
+            flags: EPHEMERAL,
+          });
+        }
+
+        const uniquePokemon = [...new Set(requestedPokemon)];
+        saveSlotFfaPokemon(guild.id, slotKey, uniquePokemon);
+
+        reconcilePokemonOwnership(guild.id);
+        await refreshQueueMessage(guild);
+
+        return interaction.reply({
+          content: `${getSlotDef(slotKey).label} FFA set to: ${uniquePokemon.map(prettyPokemonName).join(', ') || 'None'}`,
+        });
+      }
+
       if (interaction.commandName === 'readiness') {
         if (!hasStaffRole(interaction.member)) {
           return interaction.reply({ content: 'Only staff can use this command.', flags: EPHEMERAL });
@@ -992,6 +1344,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
 
+      if (interaction.commandName === 'clearres') {
+        const state = getQueueState(guild.id);
+        if (!state) {
+          return interaction.reply({ content: 'No active queue right now.', flags: EPHEMERAL });
+        }
+
+        const ownedSlots = getOwnedPickableSlots(guild.id, user.id);
+
+        if (!ownedSlots.length) {
+          return interaction.reply({
+            content: 'You do not own any pickable normal slots right now.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        for (const slot of ownedSlots) {
+          savePokemonList(guild.id, slot.slot_key, []);
+        }
+
+        await refreshQueueMessage(guild);
+
+        return interaction.reply({
+          content: 'All your chosen Pokémon were cleared. You can repick now.',
+      }); 
+      }
+
       if (interaction.commandName === 'pasthistory') {
         const summary = getFinishedHistory(guild.id);
         if (!summary || !summary.slotSnapshot) {
@@ -1007,6 +1385,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ embeds: [embed] });
       }
 
+      if (interaction.commandName === 'reservepings') {
+        const summary = getFinishedHistory(guild.id);
+
+        if (!summary || !Array.isArray(summary.slotSnapshot)) {
+          return interaction.reply({
+            content: 'No finished round data stored yet.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        return interaction.reply({
+          embeds: [buildReservePingsEmbed(summary)],
+        });
+      }
+
       if (interaction.commandName === 'choosegroup') {
         const state = getQueueState(guild.id);
         if (!state) {
@@ -1018,37 +1411,118 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const slot = getSlot(guild.id, slotKey);
         const slotDef = getSlotDef(slotKey);
 
-        if (!slotDef || slotDef.type !== 'choice') {
-          return interaction.reply({ content: 'That is not a choice slot.', flags: EPHEMERAL });
+        if (!slotDef || !slot || slot.user_id !== user.id) {
+          return interaction.reply({
+            content: 'You can only choose a group for your own claimed choice slot.',
+            flags: EPHEMERAL,
+          });
         }
 
-        if (!slot || slot.user_id !== user.id) {
-          return interaction.reply({ content: 'You can only choose a group for your own claimed choice slot.', flags: EPHEMERAL });
+        if (!isChoiceSlot(slotKey)) {
+          return interaction.reply({
+            content: 'That slot is not a choice slot.',
+            flags: EPHEMERAL,
+          });
         }
 
         if (!CHOICE_GROUP_NAMES.includes(groupName)) {
-          return interaction.reply({ content: 'That choice group does not exist.', flags: EPHEMERAL });
+          return interaction.reply({
+            content: 'That choice group does not exist.',
+            flags: EPHEMERAL,
+          });
         }
 
+  // set group first
         setChoiceGroupName(guild.id, slotKey, groupName);
+
+  // now check overlaps with earlier claims
+        const conflicts = getChoiceGroupConflicts(guild.id, slotKey, groupName);
+
+  // reconcile any later normal-slot duplicates
+        reconcilePokemonOwnership(guild.id);
         await refreshQueueMessage(guild);
 
-        const conflicts = getChoiceGroupConflicts(guild.id, slotKey, groupName);
         if (conflicts.length) {
-          const warningText = conflicts
-            .slice(0, 8)
-            .map(({ pokemonName, ownerSlot }) => `${prettyPokemonName(pokemonName)} → ${ownerSlot.slot_label}`)
+          const conflictText = conflicts
+            .map(({ pokemonName, ownerSlot }) => `**${prettyPokemonName(pokemonName)}** already belongs to ${ownerSlot.slot_label}`)
             .join('\n');
 
           return interaction.reply({
             content:
-              `${slotDef.label} is now using **${prettyGroupName(groupName)}**.\n` +
-              `Some Pokémon in this group are already taken by earlier claims:\n${warningText}`,
+              `${slotDef.label} group set to **${prettyGroupName(groupName)}**.\n` +
+              `Some Pokémon in this group are already taken by earlier claims:\n${conflictText}`,
           });
         }
 
         return interaction.reply({
-          content: `${slotDef.label} is now using **${prettyGroupName(groupName)}**.`,
+          content: `${slotDef.label} chose **${prettyGroupName(groupName)}**.`,
+        });
+      }
+
+      if (interaction.commandName === 'pick') {
+        const state = getQueueState(guild.id);
+        if (!state) {
+          return interaction.reply({ content: 'No active queue right now.', flags: EPHEMERAL });
+        }
+
+        const pokemonName = normalizePokemonName(interaction.options.getString('pokemon', true));
+        const ownedSlots = getOwnedPickableSlots(guild.id, user.id);
+
+        if (!ownedSlots.length) {
+          return interaction.reply({
+            content: 'You do not own any pickable normal slots right now.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        if (!VALID_POKEMON.has(pokemonName)) {
+          return interaction.reply({
+            content: `**${prettyPokemonName(pokemonName)}** is not a valid base Pokemon name.`,
+            flags: EPHEMERAL,
+          });
+        }
+
+        if (BANNED_POKEMON.has(pokemonName)) {
+          return interaction.reply({
+            content: `**${prettyPokemonName(pokemonName)}** is not allowed in this queue.`,
+            flags: EPHEMERAL,
+          });
+        }
+
+        const nextSlot = getNextOwnedEmptyPickableSlot(guild.id, user.id);
+
+        if (!nextSlot) {
+          const filledCount = ownedSlots.length;
+          return interaction.reply({
+            content: `All your pickable slots already have Pokemon (${filledCount}/${filledCount} chosen). Use **/clearres** if you want to repick.`,
+            flags: EPHEMERAL,
+          });
+        }
+
+        if (pokemonName === MISSINGNO_NAME && !isResSlot(nextSlot.slot_key)) {
+          return interaction.reply({
+            content: '**Missingno** can only be taken by Res1 to Res7.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const conflictingSlot = getConflictingOwner(guild.id, pokemonName, nextSlot.slot_key);
+        if (conflictingSlot) {
+          return interaction.reply({
+            content: `**${prettyPokemonName(pokemonName)}** belongs to ${conflictingSlot.slot_label} because that slot was claimed earlier.`,
+            flags: EPHEMERAL,
+          });
+        }
+
+        savePokemonList(guild.id, nextSlot.slot_key, [pokemonName]);
+        reconcilePokemonOwnership(guild.id);
+        await refreshQueueMessage(guild);
+
+        const updatedOwnedSlots = getOwnedPickableSlots(guild.id, user.id);
+        const chosenCount = updatedOwnedSlots.filter((slot) => parsePokemonList(slot.pokemon_names).length > 0).length;
+
+        return interaction.reply({
+          content: `Set **${nextSlot.slot_label}** to **${prettyPokemonName(pokemonName)}**. ${chosenCount}/${updatedOwnedSlots.length} pokemon chosen.`,
         });
       }
 
@@ -1059,7 +1533,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         const slotKey = interaction.options.getString('slot', true);
-        const rareText = interaction.options.getString('rare', true).trim();
+        const rareRaw = interaction.options.getString('rare', true).trim();
+        const rareText = normalizePokemonName(rareRaw);
         const slot = getSlot(guild.id, slotKey);
 
         if (!CHOOSE_RARE_SLOT_KEYS.has(slotKey)) {
@@ -1070,61 +1545,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction.reply({ content: 'You can only choose a rare for your own slot.', flags: EPHEMERAL });
         }
 
-        setChosenRare(guild.id, slotKey, rareText);
+        setChosenRare(guild.id, slotKey, prettyPokemonName(rareText));
         await refreshQueueMessage(guild);
+
+        if (!RARE_POKEMON.has(rareText)) {
+          return interaction.reply({
+            content: `**${prettyPokemonName(rareText)}** is not a valid rare Pokemon name.`,
+            flags: EPHEMERAL,
+          });
+        }
 
         return interaction.reply({
           content: `${getSlotDef(slotKey).label} rare set to **${rareText}**.`,
-        });
-      }
-
-      if (interaction.commandName === 'pick') {
-        const state = getQueueState(guild.id);
-        if (!state) {
-          return interaction.reply({ content: 'No active queue right now.', flags: EPHEMERAL });
-        }
-
-        const slotKey = interaction.options.getString('slot', true);
-        const pokemonName = normalizePokemonName(interaction.options.getString('pokemon1', true));
-        const slot = getSlot(guild.id, slotKey);
-        const slotDef = getSlotDef(slotKey);
-
-        if (!slotDef || !slot || slot.user_id !== user.id) {
-          return interaction.reply({ content: 'You can only set Pokemon for your own claimed slot.', flags: EPHEMERAL });
-        }
-
-        if (slotDef.type === 'choice') {
-          return interaction.reply({
-            content: `Choice slots only use **/choosegroup**. You do not need /pick for ${slotDef.label}.`,
-            flags: EPHEMERAL,
-          });
-        }
-
-        if (!VALID_POKEMON.has(pokemonName)) {
-          return interaction.reply({ content: `**${prettyPokemonName(pokemonName)}** is not a valid English Base Pokemon name.`, flags: EPHEMERAL });
-        }
-
-        if (BANNED_POKEMON.has(pokemonName)) {
-          return interaction.reply({ content: `**${prettyPokemonName(pokemonName)}** is not allowed in this queue.`, flags: EPHEMERAL });
-        }
-
-        if (pokemonName === MISSINGNO_NAME && !isResSlot(slotKey)) {
-          return interaction.reply({ content: '**Missingno** can only be taken by Res1 to Res7.', flags: EPHEMERAL });
-        }
-
-        const conflictingSlot = getConflictingOwner(guild.id, pokemonName, slotKey);
-        if (conflictingSlot) {
-          return interaction.reply({
-            content: `**${prettyPokemonName(pokemonName)}** belongs to ${conflictingSlot.slot_label} because it was claimed earlier.`,
-            flags: EPHEMERAL,
-          });
-        }
-
-        savePokemonList(guild.id, slotKey, [pokemonName]);
-        await refreshQueueMessage(guild);
-
-        return interaction.reply({
-          content: `Set ${slotDef.label} to **${prettyPokemonName(pokemonName)}**. Run /pick again if you need to change it.`,
         });
       }
 
