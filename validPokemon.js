@@ -1,4 +1,5 @@
 const VALID_POKEMON = new Set([
+  'missingno',
   'bulbasaur',
   'ivysaur',
   'charmander',
