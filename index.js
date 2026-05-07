@@ -3527,11 +3527,20 @@ function buildQueueEmbedFromSlots(slots, options = {}) {
   const normalSlots = [];
   const resSlots = [];
   const bottomSlots = [];
+  const eventSlots = [];
 
   slots.forEach((slot) => {
     if (isResSlot(slot.slot_key)) {
       resSlots.push(slot);
-    } else if (slot.slot_key === 'booster1' || slot.slot_key === 'booster2' || slot.slot_key === 'donor' || slot.slot_key === 'org' || slot.slot_key === 'reserver' ) {
+    } else if (isEventSlot(slot.slot_key)) {
+      eventSlots.push(slot);
+    } else if (
+      slot.slot_key === 'org' ||
+      slot.slot_key === 'reserver' ||
+      slot.slot_key === 'booster1' ||
+      slot.slot_key === 'booster2' ||
+      slot.slot_key === 'donor'
+    ) {
       bottomSlots.push(slot);
     } else {
       normalSlots.push(slot);
