@@ -1,4 +1,5 @@
 require('dotenv').config();
+
 const {
   ActionRowBuilder,
   ButtonBuilder,
@@ -78,20 +79,20 @@ const MONITORED_CHANNELS = [
 
 const EPHEMERAL = 64;
 
-const EVENT_QUEUE_ENABLED = false;
+const EVENT_QUEUE_ENABLED = true;
 
 const EVENT_SLOT_CONFIG = [
   {
     key: 'event1',
-    label: 'Beta Bellsprout',
-    fixedPokemon: 'beta bellsprout',
+    label: 'Swarming Ledyba',
+    fixedPokemon: 'swarming ledyba',
     buyerRoleEnv: 'EVENT1_BUYER_ROLE_ID',
     maxPokemon: 2,
   },
   {
     key: 'event2',
-    label: 'Beta Bayleef',
-    fixedPokemon: 'beta bayleef',
+    label: 'Cicada Vikavolt',
+    fixedPokemon: 'cicada vikavolt',
     buyerRoleEnv: 'EVENT2_BUYER_ROLE_ID',
     maxPokemon: 2,
   },
@@ -148,7 +149,7 @@ const CHOOSE_RARE_SLOT_KEYS = new Set(['gmax', 'choice1', 'choice2']);
 const CHOICE_SLOT_KEYS = new Set(['choice1', 'choice2']);
 const SLOT_COUNT = SLOT_DEFS.length;
 const MAIN_SLOT_COUNT = SLOT_DEFS.filter((slot) => !BOOSTER_SLOT_KEYS.has(slot.key)).length;
-const BANNED_POKEMON = new Set(['eevee', 'jolteon', 'flareon', 'vaporeon', 'sylveon', 'glaceon', 'espeon', 'umbreon', 'leafeon', 'alcremie',
+const BANNED_POKEMON = new Set(['eevee', 'jolteon', 'flareon', 'vaporeon', 'sylveon', 'glaceon', 'espeon', 'umbreon', 'leafeon', 'alcremie', 'vikavolt', 'ledyba',
   'appletun',
   'blastoise',
   'butterfree',
@@ -202,6 +203,8 @@ const FIXED_REMOVE_TAIL = [
   'Regional',
   'Gmax',
   'Paradox',
+  'Swarming Ledyba',
+  'Cicada Vikavolt'
 ];
 
 const ALL_FORM_POKEMON = new Set([
@@ -303,7 +306,9 @@ const REGIONAL_FORM_BASE_POKEMON = new Set([
   'goodra',
   'basculin',
   'wooper',
-  'tauros'
+  'tauros',
+  'vikavolt',
+  'ledyba'
 ])
 
 const dbPath = process.env.DB_PATH || 'queue.db';
