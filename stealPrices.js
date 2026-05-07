@@ -1044,8 +1044,8 @@ const ODD_STEAL_PRICES = {
 
 const EVENT_POKEMON = new Set([
   // normalized keys
-  "beta-bellsprout",
-  "beta-bayleef"
+  "swarming-ledyba",
+  "cicada-vikavolt"
 ]);
 
 const RARE_POKEMON = new Set([
