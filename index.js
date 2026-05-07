@@ -149,7 +149,7 @@ const CHOOSE_RARE_SLOT_KEYS = new Set(['gmax', 'choice1', 'choice2']);
 const CHOICE_SLOT_KEYS = new Set(['choice1', 'choice2']);
 const SLOT_COUNT = SLOT_DEFS.length;
 const MAIN_SLOT_COUNT = SLOT_DEFS.filter((slot) => !BOOSTER_SLOT_KEYS.has(slot.key)).length;
-const BANNED_POKEMON = new Set(['eevee', 'jolteon', 'flareon', 'vaporeon', 'sylveon', 'glaceon', 'espeon', 'umbreon', 'leafeon', 'alcremie', 'vikavolt', 'ledyba',
+const BANNED_POKEMON = new Set(['eevee', 'jolteon', 'flareon', 'vaporeon', 'sylveon', 'glaceon', 'espeon', 'umbreon', 'leafeon', 'alcremie', 
   'appletun',
   'blastoise',
   'butterfree',
