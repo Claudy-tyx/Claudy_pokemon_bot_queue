@@ -849,25 +849,49 @@ async function buildProfilesCsv(guildId) {
   return lines.join('\n');
 }
 
-async function getLeaderboard(guildId, limit = 10) {
+async function getLeaderboard(guildId, type = 'points', limit = 10) {
+  const safeLimit = Number.isInteger(Number(limit)) ? Number(limit) : 10;
+
+  let column;
+
+  switch (type) {
+    case 'points':
+      column = 'points';
+      break;
+    case 'rare':
+      column = 'rare_buys';
+      break;
+    case 'regional':
+      column = 'regional_buys';
+      break;
+    case 'gmax':
+      column = 'gmax_buys';
+      break;
+    case 'eevee':
+      column = 'eevos_buys';
+      break;
+    default:
+      column = 'points';
+  }
+
   if (!useFirebaseProfiles()) {
     return db.prepare(`
-      SELECT *
+      SELECT profile_id, ${column} as value
       FROM buyer_profiles
       WHERE guild_id = ?
-      ORDER BY points DESC,
-               total_buys DESC
+      ORDER BY ${column} DESC
       LIMIT ?
-    `).all(guildId, limit);
+    `).all(guildId, safeLimit);
   }
 
   const snapshot = await profileCollection(guildId)
-    .orderBy('points', 'desc')
-    .limit(limit)
+    .orderBy(column, 'desc')
+    .limit(safeLimit)
     .get();
 
   return snapshot.docs.map((doc) => ({
     profile_id: doc.id,
+    value: doc.data()[column] || 0,
     ...doc.data(),
   }));
 }
@@ -5589,6 +5613,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
 			if (interaction.commandName === 'profile') {
+        await interaction.deferReply({ flags: EPHEMERAL });
 			  const targetUser = interaction.options.getUser('user') || interaction.user;
 			
 			  const profileId = await getProfileIdForUser(guild.id, targetUser.id);
@@ -5596,15 +5621,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			  const profile = await getBuyerProfile(guild.id, targetUser.id);
 			
 			  if (!profile) {
-			    return interaction.reply({
+			    return interaction.editReply({
 			      content: `<@${targetUser.id}> does not have a buyer profile yet.`,
 			      flags: EPHEMERAL,
 			    });
 			  }
 			
-			  const linkedAlts = await getLinkedAlts(guild.id, profileId)
-			    .map((row) => `<@${row.user_id}>`)
-			    .join(', ') || 'None';
+			  const linkedAlts = (await getLinkedAlts(guild.id, profileId))
+          .map((row) => `<@${row.user_id}>`)
+          .join(', ') || 'None';
 			
 			  const embed = new EmbedBuilder()
 			    .setTitle(`${targetUser.username}'s Buyer Profile`)
@@ -5623,7 +5648,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			    )
 			    .setTimestamp();
 			
-			  return interaction.reply({
+			  return interaction.editReply({
 			    embeds: [embed],
 			  });
 			}
@@ -5764,8 +5789,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			}
 
 			if (interaction.commandName === 'exportprofiles') {
+        await interaction.deferReply({ flags: EPHEMERAL });
 			  if (!hasStaffRole(interaction.member)) {
-			    return interaction.reply({
+			    return interaction.editReply({
 			      content: 'Only staff can export profiles.',
 			      flags: EPHEMERAL,
 			    });
@@ -5778,7 +5804,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			    name: `buyer-profiles-${guild.id}.csv`,
 			  });
 			
-			  return interaction.reply({
+			  return interaction.editReply({
 			    content: 'Buyer profile export:',
 			    files: [file],
 			    
@@ -5786,12 +5812,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			}
 
 			if (interaction.commandName === 'leaderboard') {
+        await interaction.deferReply({ flags: EPHEMERAL });
 			  const type = interaction.options.getString('type', true);
 			
 			  const rows = await getLeaderboard(guild.id, type);
 			
 			  if (!rows.length) {
-			    return interaction.reply({
+			    return interaction.editReply({
 			      content: 'No data yet.',
 			      flags: EPHEMERAL,
 			    });
@@ -5817,7 +5844,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			    .setDescription(description)
 			    .setTimestamp();
 			
-			  return interaction.reply({
+			  return interaction.editReply({
 			    embeds: [embed],
 			  });
 			}
