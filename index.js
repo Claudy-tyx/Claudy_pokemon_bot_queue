@@ -5613,7 +5613,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
 			if (interaction.commandName === 'profile') {
-        await interaction.deferReply({ flags: EPHEMERAL });
+        await interaction.deferReply();
 			  const targetUser = interaction.options.getUser('user') || interaction.user;
 			
 			  const profileId = await getProfileIdForUser(guild.id, targetUser.id);
@@ -5812,7 +5812,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			}
 
 			if (interaction.commandName === 'leaderboard') {
-        await interaction.deferReply({ flags: EPHEMERAL });
+        await interaction.deferReply();
 			  const type = interaction.options.getString('type', true);
 			
 			  const rows = await getLeaderboard(guild.id, type);
@@ -7316,18 +7316,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       if (interaction.commandName === 'finish') {
         if (!hasStaffRole(interaction.member)) {
-          return interaction.reply({
+          return interaction.editReply({
             content: 'Only staff can use this command.',
             flags: EPHEMERAL,
           });
         }
 
         if (!getQueueState(guild.id)) {
-          return interaction.reply({
+          return interaction.editReply({
             content: 'No active queue.',
             flags: EPHEMERAL,
           });
         }
+
+        await interaction.deferReply();
 
         rolloverClaimHistoryToPreviousRound(guild.id);
 
@@ -7347,7 +7349,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         addFinishedPokemonCooldowns(guild.id);
 
-        return interaction.reply({
+        return interaction.editReply({
           content: 'Round finished and readiness checker posted.',
           flags: EPHEMERAL,
         });
