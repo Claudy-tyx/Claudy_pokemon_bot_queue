@@ -438,6 +438,9 @@ CREATE TABLE IF NOT EXISTS buyer_profiles (
   gmax_buys INTEGER NOT NULL DEFAULT 0,
   eevos_buys INTEGER NOT NULL DEFAULT 0,
   choice_res_points INTEGER NOT NULL DEFAULT 0,
+  choice_buys INTEGER NOT NULL DEFAULT 0,
+  single_res_buys INTEGER NOT NULL DEFAULT 0,
+  double_res_buys INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (guild_id, profile_id)
@@ -963,6 +966,9 @@ async function ensureBuyerProfile(guildId, userId) {
       gmax_buys: 0,
       eevos_buys: 0,
       choice_res_points: 0,
+      choice_buys: 0,
+      single_res_buys: 0,
+      double_res_buys: 0,
       created_at: now,
       updated_at: now,
     });
@@ -999,6 +1005,9 @@ async function awardBuyerProfileForSlot(guildId, userId, slotKey) {
   const regional = slotKey === 'regional' ? 1 : 0;
   const gmax = slotKey === 'gmax' ? 1 : 0;
   const eevos = slotKey === 'eevos' ? 1 : 0;
+  const choiceBuys = isChoiceSlot(slotKey) ? 1 : 0;
+  const singleResBuys = SINGLE_RES_SLOT_KEYS.includes(slotKey) ? 1 : 0;
+  const doubleResBuys = DOUBLE_RES_SLOT_KEYS.includes(slotKey) ? 1 : 0;
 
   if (!useFirebaseProfiles()) {
     db.prepare(`
@@ -1011,6 +1020,9 @@ async function awardBuyerProfileForSlot(guildId, userId, slotKey) {
         regional_buys = regional_buys + ?,
         gmax_buys = gmax_buys + ?,
         eevos_buys = eevos_buys + ?,
+        choice_buys = choice_buys + ?,
+        single_res_buys = single_res_buys + ?,
+        double_res_buys = double_res_buys + ?,
         updated_at = ?
       WHERE guild_id = ?
         AND profile_id = ?
@@ -1022,6 +1034,9 @@ async function awardBuyerProfileForSlot(guildId, userId, slotKey) {
       regional,
       gmax,
       eevos,
+      choiceBuys,
+      singleResBuys,
+      doubleResBuys,
       now,
       guildId,
       profileId
@@ -1058,6 +1073,9 @@ async function awardBuyerProfileForSlot(guildId, userId, slotKey) {
       regional_buys: (data.regional_buys || 0) + regional,
       gmax_buys: (data.gmax_buys || 0) + gmax,
       eevos_buys: (data.eevos_buys || 0) + eevos,
+      choice_buys: (data.choice_buys || 0) + choiceBuys,
+      single_res_buys: (data.single_res_buys || 0) + singleResBuys,
+      double_res_buys: (data.double_res_buys || 0) + doubleResBuys,
       updated_at: now,
     }, { merge: true });
   });
@@ -5623,7 +5641,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			  if (!profile) {
 			    return interaction.editReply({
 			      content: `<@${targetUser.id}> does not have a buyer profile yet.`,
-			      flags: EPHEMERAL,
+			      
 			    });
 			  }
 			
@@ -5643,6 +5661,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			      { name: 'Regional Buys', value: String(profile.regional_buys), inline: true },
 			      { name: 'Gmax Buys', value: String(profile.gmax_buys), inline: true },
 			      { name: 'Eevee Buys', value: String(profile.eevos_buys), inline: true },
+            {
+              name: 'Choice / Reserve Buys',
+              value:
+                `Choice: ${profile.choice_buys || 0}\n` +
+                `Single Res: ${profile.single_res_buys || 0}\n` +
+                `Double Res: ${profile.double_res_buys || 0}`,
+              inline: true,
+            },
             { name: 'Main Profile', value: mainText, inline: false },
 			      { name: 'Linked Alts', value: linkedAlts, inline: false }
 			    )
