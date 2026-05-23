@@ -979,9 +979,9 @@ async function ensureBuyerProfile(guildId, userId) {
 
 function getProfilePointsForSlot(slotKey) {
   if (slotKey === 'regional') return 2;
-  if (SINGLE_RES_SLOT_KEYS.includes(slotKey)) return 2;
-  if (DOUBLE_RES_SLOT_KEYS.includes(slotKey)) return 4;
-  if (isChoiceSlot(slotKey)) return 5;
+  if (SINGLE_RES_SLOT_KEYS.includes(slotKey)) return 1;
+  if (DOUBLE_RES_SLOT_KEYS.includes(slotKey)) return 2;
+  if (isChoiceSlot(slotKey)) return 3;
   return 0;
 }
 
