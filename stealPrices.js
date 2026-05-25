@@ -1289,6 +1289,7 @@ const REGIONAL_POKEMON = new Set([
   'overqwil',
   'paldean-wooper',
   'combat-breed-tauros',
+  'aqua-breed-tauros',
   'blaze-breed-tauros'
 ]);
 
