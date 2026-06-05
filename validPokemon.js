@@ -2,7 +2,7 @@ const VALID_POKEMON = new Set([
   'missingno',
   'farigiraf',
   'wyrdeer',
-  'pro-tangrowth',
+  'prof-tangrowth',
   'smearguru',
   'mosslax',
   'dj-rotom',
