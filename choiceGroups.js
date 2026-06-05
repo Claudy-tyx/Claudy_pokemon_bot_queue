@@ -1,14 +1,5 @@
 const CHOICE_GROUPS = {
 
-  pokopia: [
-    'prof tangrowth',
-    'chef dente',
-    'peakychu',
-    'mosslax',
-    'dj rotom',
-    'smearguru',
-  ],
-
   jenn: [
     'carbink',
     'cryogonal',
