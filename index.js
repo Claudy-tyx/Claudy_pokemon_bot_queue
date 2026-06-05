@@ -281,6 +281,9 @@ const ALL_FORM_POKEMON = new Set([
   'koraidon',
   'miraidon',
   'marshadow',
+  'smeargle',
+  'greedent',
+  'tangrowth',
 ]);
 
 const REGIONAL_FORM_BASE_POKEMON = new Set([
@@ -336,6 +339,7 @@ const REGIONAL_FORM_BASE_POKEMON = new Set([
   'basculin',
   'wooper',
   'tauros',
+  'snorlax',
 ])
 
 const dbPath = process.env.DB_PATH || 'queue.db';
@@ -5341,7 +5345,6 @@ client.on('messageCreate', async (message) => {
       '!barn',
       'go touch grass <a:3_:1496851131085754438>',
       'These colours don\'t seem unusual...✨',
-      'you stinky',
       'eevee sees a 4k chain from you soon <:15:1496852948293128202>',
       'Eevee says you should lighten up <:15:1496852948293128202>',
 
