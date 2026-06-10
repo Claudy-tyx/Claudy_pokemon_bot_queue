@@ -7649,6 +7649,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
             flags: EPHEMERAL,
           });
         }
+		const buyerChannelId = process.env.BUYER_CHANNEL_ID.trim();
+
+		// ensure /pick only works in funky-buyers
+		if (interaction.channel.id !== buyerChannelId) {
+			return interaction.reply({
+	          content: 'You may only run this command in <#${buyerChannelID}>.',
+	          flags: EPHEMERAL,
+	        });
+		}
 
         const rawInput = interaction.options.getString('pokemon', true);
 
