@@ -293,6 +293,12 @@ const ODD_STEAL_PRICES = {
   "treecko": 4000,
   "turtwig": 4000,
 
+  "prof-tangrowth": 6000,
+  "smearguru": 6000,
+  "peakychu": 6000,
+  "mosslax": 6000,
+  "dj-rotom": 6000,
+	
   "aipom": 6000,
   "amaura": 6000,
   "anorith": 6000,
