@@ -60,6 +60,7 @@ const { VALID_POKEMON } = require('./validPokemon');
 const { CHOICE_GROUPS } = require('./choiceGroups');
 const { RARE_POKEMON } = require('./rarepokemon');
 const { getStealPriceInfo, formatStealPrice } = require('./stealPrices');
+// const { POKEMON_ALIAS_GROUPS } = require('./pokemonAliases');
 const {
   RARE_POKEMON: STEAL_RARE_POKEMON,
   REGIONAL_POKEMON: STEAL_REGIONAL_POKEMON,
@@ -7572,6 +7573,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
             flags: EPHEMERAL,
           });
         }
+		  
+		const buyerChannelId = process.env.BUYER_CHANNEL_ID.trim();
+
+		// ensure /choosegroup only works in funky-buyers, unless staff
+		if (
+		  interaction.channel.id !== buyerChannelId &&
+		  !hasStaffRole(interaction.member)
+		) {
+		  return interaction.reply({
+		    content: `You may only run this command in <#${buyerChannelId}>.`,
+		    flags: EPHEMERAL,
+		  });
+		}
 
         const slotKey = interaction.options.getString('slot', true);
         const groupName = interaction.options.getString('group', true).trim().toLowerCase();
@@ -7651,12 +7665,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 		const buyerChannelId = process.env.BUYER_CHANNEL_ID.trim();
 
-		// ensure /pick only works in funky-buyers
-		if (interaction.channel.id !== buyerChannelId) {
-			return interaction.reply({
-	          content: 'You may only run this command in <#${buyerChannelID}>.',
-	          flags: EPHEMERAL,
-	        });
+		// ensure /pick only works in funky-buyers, unless staff
+		if (
+		  interaction.channel.id !== buyerChannelId &&
+		  !hasStaffRole(interaction.member)
+		) {
+		  return interaction.reply({
+		    content: `You may only run this command in <#${buyerChannelId}>.`,
+		    flags: EPHEMERAL,
+		  });
 		}
 
         const rawInput = interaction.options.getString('pokemon', true);
