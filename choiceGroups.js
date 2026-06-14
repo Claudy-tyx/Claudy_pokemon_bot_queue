@@ -9,7 +9,7 @@ const CHOICE_GROUPS = {
     'gastrodon',
     'karrablast',
     'kecleon',
-    'munchlax',
+    'munchlax',`
     'poltchageist',
     'shuckle',
     'squirtle'
