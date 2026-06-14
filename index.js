@@ -53,14 +53,14 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-	AttachmentBuilder,
+  AttachmentBuilder,
 } = require('discord.js');
 const Database = require('better-sqlite3');
 const { VALID_POKEMON } = require('./validPokemon');
 const { CHOICE_GROUPS } = require('./choiceGroups');
 const { RARE_POKEMON } = require('./rarepokemon');
 const { getStealPriceInfo, formatStealPrice } = require('./stealPrices');
-// const { POKEMON_ALIAS_GROUPS } = require('./pokemonAliases');
+const { POKEMON_ALIAS_GROUPS } = require('./pokemonAliases');
 const {
   RARE_POKEMON: STEAL_RARE_POKEMON,
   REGIONAL_POKEMON: STEAL_REGIONAL_POKEMON,
@@ -112,7 +112,7 @@ const MONITORED_CHANNELS = [
   '1370401661192900688',
   '1343484220504539156',
   '1387646555875708949',
-  
+
 ];
 
 const EPHEMERAL = 64;
@@ -180,7 +180,7 @@ const CHOOSE_RARE_SLOT_KEYS = new Set(['gmax', 'choice1', 'choice2']);
 const CHOICE_SLOT_KEYS = new Set(['choice1', 'choice2']);
 const SLOT_COUNT = SLOT_DEFS.length;
 const MAIN_SLOT_COUNT = SLOT_DEFS.filter((slot) => !BOOSTER_SLOT_KEYS.has(slot.key)).length;
-const BANNED_POKEMON = new Set(['eevee', 'jolteon', 'flareon', 'vaporeon', 'sylveon', 'glaceon', 'espeon', 'umbreon', 'leafeon', 'alcremie', 
+const BANNED_POKEMON = new Set(['eevee', 'jolteon', 'flareon', 'vaporeon', 'sylveon', 'glaceon', 'espeon', 'umbreon', 'leafeon', 'alcremie',
   'appletun',
   'blastoise',
   'butterfree',
@@ -217,7 +217,7 @@ const SINGLE_RES_SLOT_KEYS = ['res1', 'res2', 'res3', 'res4', 'res5', 'res6'];
 const DOUBLE_RES_SLOT_KEYS = ['res7', 'res8'];
 const overpauseTimers = new Map(); // key = guildId:channelId -> timeout
 const MAX_NOTES_PER_SLOT = 3;
-const MAX_NOTE_LENGTH = 50;
+const MAX_NOTE_LENGTH = 70;
 const FIXED_REMOVE_TAIL = [
   'All Eevee',
   'Vaporeon',
@@ -1224,7 +1224,7 @@ function getHighestProfileTitle(profile) {
   if (profile.gmax_buys >= 20) return 'Gmax Specialist';
   if (profile.eevos_buys >= 20) return 'Eevee Specialist';
   if (profile.choice_res_points >= 50) return 'Choice/Res Veteran';
-	
+
   if (profile.total_buys >= 50) return 'VIP Buyer';
   if (profile.total_buys >= 25) return 'Loyal Buyer';
   if (profile.total_buys >= 10) return 'Regular Buyer';
@@ -1432,28 +1432,28 @@ function findPokemonOwnerFromFinishedHistory(guildId, pokemonName) {
   ]);
 
   const PARADOX_POKEMON = new Set([
-  'great-tusk',
-  'scream-tail',
-  'brute-bonnet',
-  'flutter-mane',
-  'slither-wing',
-  'sandy-shocks',
-  'roaring-moon',
-  'walking-wake',
-  'gouging-fire',
-  'raging-bolt',
+    'great-tusk',
+    'scream-tail',
+    'brute-bonnet',
+    'flutter-mane',
+    'slither-wing',
+    'sandy-shocks',
+    'roaring-moon',
+    'walking-wake',
+    'gouging-fire',
+    'raging-bolt',
 
-  'iron-treads',
-  'iron-bundle',
-  'iron-hands',
-  'iron-jugulis',
-  'iron-moth',
-  'iron-thorns',
-  'iron-valiant',
-  'iron-leaves',
-  'iron-boulder',
-  'iron-crown',
-]);
+    'iron-treads',
+    'iron-bundle',
+    'iron-hands',
+    'iron-jugulis',
+    'iron-moth',
+    'iron-thorns',
+    'iron-valiant',
+    'iron-leaves',
+    'iron-boulder',
+    'iron-crown',
+  ]);
 
   if (normalized.includes('paradox') || PARADOX_POKEMON.has(normalized)) {
     return choiceParadox || getFinishedSlot('rare');
@@ -1671,6 +1671,8 @@ function buildAnnouncementMiddleFromSlot(guildId, userId, templateNumber) {
       }
     }
   }
+
+  choiceLines.push(...formatMajorFfaLines(slots));
 
   if (choiceLines.length) {
     const groupEmoji = pickCycle(groupEmojis, groupIndex++);
@@ -1950,6 +1952,8 @@ function buildAnnouncementMiddle(guildId, userId) {
     }
   }
 
+  choiceLines.push(...formatMajorFfaLines(slots));
+
   if (choiceLines.length) {
     const groupEmoji = pickCycle(groupEmojis, groupIndex++);
     lines.push(`## ${formatListLine(groupEmoji, '**Reserved Choices**')}`);
@@ -1981,7 +1985,7 @@ function buildAnnouncementMiddle(guildId, userId) {
   return output || 'No Pokémon selected yet.';
 }
 
-function buildAnnouncement(guild, userId, includePing){
+function buildAnnouncement(guild, userId, includePing) {
   const config = getAnnouncementConfig(guild.id, userId);
 
   const parts = [];
@@ -2056,7 +2060,7 @@ function normalizeDisplayName(name) {
 }
 
 function ensureColumn(tableName, columnName, sqlTypeWithDefault) {
-  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all().map((col) => col.name); 
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all().map((col) => col.name);
   if (!columns.includes(columnName)) {
     db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${sqlTypeWithDefault}`);
   }
@@ -2742,9 +2746,9 @@ function ensureSchema() {
   ensureColumn('slots', 'ffa_pokemon', `TEXT`);
 
   const userHistoryColumns = db.prepare(`PRAGMA table_info(user_claim_history)`).all().map((column) => column.name);
-    if (userHistoryColumns.includes('last_slot_key') || userHistoryColumns.includes('last_slot_number')) {
-      db.exec(`DROP TABLE IF EXISTS user_claim_history`);
-      db.exec(`
+  if (userHistoryColumns.includes('last_slot_key') || userHistoryColumns.includes('last_slot_number')) {
+    db.exec(`DROP TABLE IF EXISTS user_claim_history`);
+    db.exec(`
         CREATE TABLE IF NOT EXISTS user_claim_history (
           guild_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
@@ -2752,12 +2756,12 @@ function ensureSchema() {
           PRIMARY KEY (guild_id, user_id, slot_key)
         );
       `);
-    }
+  }
 
-    const previousHistoryColumns = db.prepare(`PRAGMA table_info(previous_round_claim_history)`).all().map((column) => column.name);
-    if (previousHistoryColumns.includes('last_slot_key') || previousHistoryColumns.includes('last_slot_number')) {
-      db.exec(`DROP TABLE IF EXISTS previous_round_claim_history`);
-      db.exec(`
+  const previousHistoryColumns = db.prepare(`PRAGMA table_info(previous_round_claim_history)`).all().map((column) => column.name);
+  if (previousHistoryColumns.includes('last_slot_key') || previousHistoryColumns.includes('last_slot_number')) {
+    db.exec(`DROP TABLE IF EXISTS previous_round_claim_history`);
+    db.exec(`
         CREATE TABLE IF NOT EXISTS previous_round_claim_history (
           guild_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
@@ -2765,7 +2769,7 @@ function ensureSchema() {
           PRIMARY KEY (guild_id, user_id, slot_key)
         );
       `);
-    }
+  }
 }
 
 ensureSchema();
@@ -2862,13 +2866,33 @@ function buildCloseTicketConfirmButtons(threadId) {
 }
 
 function normalizePokemonName(name) {
-  return String(name || '')
+  const normalized = String(name || '')
     .normalize('NFD')                  // split accents
     .replace(/[\u0300-\u036f]/g, '')   // remove accents
     .toLowerCase()
     .replace(/['’.]/g, '')
     .replace(/\s+/g, '-')
     .trim();
+  return POKEMON_ALIAS_LOOKUP.get(normalized) || normalized;
+}
+
+const POKEMON_ALIAS_LOOKUP = new Map();
+
+function buildPokemonAliasLookup() {
+  for (const [englishName, aliases] of Object.entries(POKEMON_ALIAS_GROUPS || {})) {
+    const canonical = normalizePokemonName(englishName);
+
+    POKEMON_ALIAS_LOOKUP.set(canonical, canonical);
+
+    for (const alias of aliases || []) {
+      POKEMON_ALIAS_LOOKUP.set(normalizePokemonName(alias), canonical);
+    }
+  }
+}
+
+function resolvePokemonAlias(name) {
+  const normalized = normalizePokemonName(name);
+  return POKEMON_ALIAS_LOOKUP.get(normalized) || normalized;
 }
 
 function prettyPokemonName(name) {
@@ -3132,6 +3156,31 @@ function getSlotFfaPokemon(slot) {
   return parsePokemonList(slot?.ffa_pokemon);
 }
 
+const MAJOR_FFA_SLOT_KEYS = new Set(['rare', 'regional', 'gmax', 'eevos']);
+
+function isMajorFfaSlot(slotKey) {
+  return MAJOR_FFA_SLOT_KEYS.has(slotKey);
+}
+
+function formatMajorFfaLines(slots) {
+  const lines = [];
+
+  for (const slot of slots) {
+    if (!isMajorFfaSlot(slot.slot_key)) continue;
+
+    const ffaPokemon = getSlotFfaPokemon(slot);
+    if (!ffaPokemon.length) continue;
+
+    const formattedFfa = ffaPokemon
+      .map((name) => prettyPokemonName(formatReserveOutputName(name)))
+      .sort((a, b) => a.localeCompare(b));
+
+    lines.push(`**ffa ${slot.slot_label}:** ${formattedFfa.join(', ')}`);
+  }
+
+  return lines;
+}
+
 function saveSlotFfaPokemon(guildId, slotKey, pokemonList) {
   db.prepare(`
     UPDATE slots
@@ -3197,9 +3246,9 @@ function resetSlot(guildId, slotKey) {
   const slotDef = getSlotDef(slotKey);
   const defaultPokemon = isEventSlot(slotKey)
     ? (() => {
-        const fixedPokemon = getEventFixedPokemon(slotKey);
-        return fixedPokemon ? [fixedPokemon] : [];
-      })()
+      const fixedPokemon = getEventFixedPokemon(slotKey);
+      return fixedPokemon ? [fixedPokemon] : [];
+    })()
     : [];
 
   db.prepare(`
@@ -3670,12 +3719,12 @@ function buildSummaryFromCurrentSlots(guildId) {
 
       choiceLines.push(`**${prettyGroupName(slot.choice_group_name)}:** ${groupPokemon.join(', ') || 'None'}`);
       if (ffaPokemon.length) {
-      const formattedFfa = ffaPokemon
-        .map((name) => prettyPokemonName(formatReserveOutputName(name)))
-        .sort((a, b) => a.localeCompare(b));
+        const formattedFfa = ffaPokemon
+          .map((name) => prettyPokemonName(formatReserveOutputName(name)))
+          .sort((a, b) => a.localeCompare(b));
 
-      choiceLines.push(`**ffa ${prettyGroupName(slot.choice_group_name)}:** ${formattedFfa.join(', ')}`);
-    }
+        choiceLines.push(`**ffa ${prettyGroupName(slot.choice_group_name)}:** ${formattedFfa.join(', ')}`);
+      }
       removePokemon.push(...groupPokemon);
       continue;
     }
@@ -3691,6 +3740,7 @@ function buildSummaryFromCurrentSlots(guildId) {
       removePokemon.push(prettyPokemonName(formatted));
     }
   }
+  choiceLines.push(...formatMajorFfaLines(slots));
 
   reservePokemon.sort((a, b) => a.localeCompare(b));
   const uniqueRemovePokemon = [...new Set(removePokemon)].sort((a, b) => a.localeCompare(b));
@@ -3809,7 +3859,7 @@ function buildQueueEmbedFromSlots(slots, options = {}) {
   const resSlots = [];
   const eventSlots = [];
   const bottomSlots = [];
-  
+
 
   slots.forEach((slot) => {
     if (isResSlot(slot.slot_key)) {
@@ -4476,7 +4526,7 @@ async function refreshQueueMessage(guild) {
   await message.edit({
     embeds: [buildQueueEmbed(guild.id)],
     components: buildButtons(guild.id),
-    });
+  });
 
 }
 
@@ -4676,21 +4726,21 @@ const commands = [
     ),
 
   new SlashCommandBuilder()
-	  .setName('leaderboard')
-	  .setDescription('View buyer leaderboard.')
-	  .addStringOption(option =>
-	    option
-	      .setName('type')
-	      .setDescription('Leaderboard type')
-	      .setRequired(true)
-	      .addChoices(
-	        { name: 'Points', value: 'points' },
-	        { name: 'Rare', value: 'rare' },
-	        { name: 'Regional', value: 'regional' },
-	        { name: 'Gmax', value: 'gmax' },
-	        { name: 'Eevee', value: 'eevee' }
-	      )
-	  ),
+    .setName('leaderboard')
+    .setDescription('View buyer leaderboard.')
+    .addStringOption(option =>
+      option
+        .setName('type')
+        .setDescription('Leaderboard type')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Points', value: 'points' },
+          { name: 'Rare', value: 'rare' },
+          { name: 'Regional', value: 'regional' },
+          { name: 'Gmax', value: 'gmax' },
+          { name: 'Eevee', value: 'eevee' }
+        )
+    ),
 
   new SlashCommandBuilder()
     .setName('forcelinkalt')
@@ -4702,93 +4752,93 @@ const commands = [
       o.setName('main').setDescription('Main account').setRequired(true)
     ),
 
-	new SlashCommandBuilder()
-	  .setName('linkalt')
-	  .setDescription('Request to link your account to a main buyer profile.')
-	  .addUserOption(option =>
-	    option
-	      .setName('main')
-	      .setDescription('Main account to link this account under.')
-	      .setRequired(true)
-	  ),
-	
-	new SlashCommandBuilder()
-	  .setName('approvealt')
-	  .setDescription('Approve a pending alt link.')
-	  .addUserOption(option =>
-	    option
-	      .setName('user')
-	      .setDescription('Alt user to approve.')
-	      .setRequired(true)
-	  ),
-	
-	new SlashCommandBuilder()
-	  .setName('unlinkalt')
-	  .setDescription('Remove an alt link.')
-	  .addUserOption(option =>
-	    option
-	      .setName('user')
-	      .setDescription('User to unlink.')
-	      .setRequired(true)
-	  ),
-	
-	new SlashCommandBuilder()
-	  .setName('resetprofile')
-	  .setDescription('Reset a buyer profile for one user.')
-	  .addUserOption(option =>
-	    option
-	      .setName('user')
-	      .setDescription('User profile to reset.')
-	      .setRequired(true)
-	  ),
-	
-	new SlashCommandBuilder()
-	  .setName('addpoints')
-	  .setDescription('Add profile points to a user.')
-	  .addUserOption(option =>
-	    option
-	      .setName('user')
-	      .setDescription('User to add points to.')
-	      .setRequired(true)
-	  )
-	  .addIntegerOption(option =>
-	    option
-	      .setName('amount')
-	      .setDescription('Amount of points to add.')
-	      .setRequired(true)
-	  )
-	  .addStringOption(option =>
-	    option
-	      .setName('reason')
-	      .setDescription('Reason.')
-	      .setRequired(false)
-	  ),
-	
-	new SlashCommandBuilder()
-	  .setName('removepoints')
-	  .setDescription('Remove profile points from a user.')
-	  .addUserOption(option =>
-	    option
-	      .setName('user')
-	      .setDescription('User to remove points from.')
-	      .setRequired(true)
-	  )
-	  .addIntegerOption(option =>
-	    option
-	      .setName('amount')
-	      .setDescription('Amount of points to remove.')
-	      .setRequired(true)
-	  )
-	  .addStringOption(option =>
-	    option
-	      .setName('reason')
-	      .setDescription('Reason.')
-	      .setRequired(false)
-	  ),
+  new SlashCommandBuilder()
+    .setName('linkalt')
+    .setDescription('Request to link your account to a main buyer profile.')
+    .addUserOption(option =>
+      option
+        .setName('main')
+        .setDescription('Main account to link this account under.')
+        .setRequired(true)
+    ),
 
-new SlashCommandBuilder()
-  .setName('exportprofiles')
-  .setDescription('Export all buyer profiles and alt links as CSV.'),
+  new SlashCommandBuilder()
+    .setName('approvealt')
+    .setDescription('Approve a pending alt link.')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('Alt user to approve.')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('unlinkalt')
+    .setDescription('Remove an alt link.')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('User to unlink.')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('resetprofile')
+    .setDescription('Reset a buyer profile for one user.')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('User profile to reset.')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('addpoints')
+    .setDescription('Add profile points to a user.')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('User to add points to.')
+        .setRequired(true)
+    )
+    .addIntegerOption(option =>
+      option
+        .setName('amount')
+        .setDescription('Amount of points to add.')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('reason')
+        .setDescription('Reason.')
+        .setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('removepoints')
+    .setDescription('Remove profile points from a user.')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('User to remove points from.')
+        .setRequired(true)
+    )
+    .addIntegerOption(option =>
+      option
+        .setName('amount')
+        .setDescription('Amount of points to remove.')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('reason')
+        .setDescription('Reason.')
+        .setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('exportprofiles')
+    .setDescription('Export all buyer profiles and alt links as CSV.'),
 
   new SlashCommandBuilder()
     .setName('addresult')
@@ -4797,7 +4847,7 @@ new SlashCommandBuilder()
       option.setName('user').setDescription('Target user').setRequired(true))
     .addStringOption(option =>
       option.setName('pokemon').setDescription('Pokemon list (comma separated)').setRequired(true)),
-	
+
   new SlashCommandBuilder()
     .setName('profile')
     .setDescription('View buyer profile.')
@@ -4835,7 +4885,7 @@ new SlashCommandBuilder()
   new SlashCommandBuilder()
     .setName('clearallinc')
     .setDescription('Reset all tracked incense channels for this server'),
-  
+
   new SlashCommandBuilder()
     .setName('viewannouncement')
     .setDescription('View a staff member announcement template slot.')
@@ -4853,30 +4903,52 @@ new SlashCommandBuilder()
         .setMinValue(1)
         .setMaxValue(20)
     ),
-  
+
+  new SlashCommandBuilder()
+    .setName('setmajorffa')
+    .setDescription('Set FFA Pokémon for Rare, Regional, Gmax, or Eevees.')
+    .addStringOption((option) =>
+      option
+        .setName('slot')
+        .setDescription('Major slot')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Rare', value: 'rare' },
+          { name: 'Regional', value: 'regional' },
+          { name: 'Gmax', value: 'gmax' },
+          { name: 'Eevees', value: 'eevos' }
+        )
+    )
+    .addStringOption((option) =>
+      option
+        .setName('pokemon')
+        .setDescription('Comma-separated FFA Pokémon')
+        .setRequired(true)
+    ),
+
   new SlashCommandBuilder()
     .setName('addallinc')
     .setDescription('Add all text channels under this category to incense tracking'),
 
   new SlashCommandBuilder()
-  .setName('report')
-  .setDescription('Report a stolen catch using the catch message link')
-  .addStringOption(option =>
-    option
-      .setName('message_link')
-      .setDescription('Link to the caught Pokémon message')
-      .setRequired(true)
-  ),
+    .setName('report')
+    .setDescription('Report a stolen catch using the catch message link')
+    .addStringOption(option =>
+      option
+        .setName('message_link')
+        .setDescription('Link to the caught Pokémon message')
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName('setannouncetop')
     .setDescription('Open a popup to set the top announcement section.'),
-   
+
 
   new SlashCommandBuilder()
     .setName('setannouncebottom')
     .setDescription('Open a popup to set the bottom announcement section.'),
-  
+
   new SlashCommandBuilder()
     .setName('annoslot')
     .setDescription('Choose which announcement template slot to use.')
@@ -4892,7 +4964,7 @@ new SlashCommandBuilder()
   new SlashCommandBuilder()
     .setName('setannounceping')
     .setDescription('Set the access ping for announcements.')
-    
+
     .addStringOption((option) =>
       option
         .setName('ping')
@@ -4904,7 +4976,7 @@ new SlashCommandBuilder()
   new SlashCommandBuilder()
     .setName('setannounceemojis')
     .setDescription('Set emojis/symbols used in the generated announcement list.')
-    
+
     .addStringOption((option) =>
       option
         .setName('item_emojis')
@@ -4923,36 +4995,36 @@ new SlashCommandBuilder()
   new SlashCommandBuilder()
     .setName('sampleannounce')
     .setDescription('Preview the announcement without access ping.'),
-   
+
 
   new SlashCommandBuilder()
     .setName('announce')
     .setDescription('Send the announcement with access ping.'),
-    
 
-	new SlashCommandBuilder()
-		.setName('closeticket')
-		.setDescription('Close this steal ticket thread'),
 
-	new SlashCommandBuilder()
-		.setName('addticket')
-		.setDescription('Add a user to this ticket thread')
-		.addUserOption(option =>
-			option
-				.setName('user')
-				.setDescription('User to add')
-				.setRequired(true)
-		),
+  new SlashCommandBuilder()
+    .setName('closeticket')
+    .setDescription('Close this steal ticket thread'),
 
-	new SlashCommandBuilder()
-		.setName('removeticket')
-		.setDescription('Remove a user from this ticket thread')
-		.addUserOption(option =>
-			option
-				.setName('user')
-				.setDescription('User to remove')
-				.setRequired(true)
-		),
+  new SlashCommandBuilder()
+    .setName('addticket')
+    .setDescription('Add a user to this ticket thread')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('User to add')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('removeticket')
+    .setDescription('Remove a user from this ticket thread')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('User to remove')
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName('incbought')
@@ -5046,7 +5118,7 @@ new SlashCommandBuilder()
     .setName('setffa')
     .setDescription('Set FFA Pokemon for your claimed choice slot')
     .addStringOption((option) =>
-    addChoiceSlotChoices(option.setName('slot').setDescription('Your claimed choice slot'))
+      addChoiceSlotChoices(option.setName('slot').setDescription('Your claimed choice slot'))
     )
     .addStringOption((option) =>
       option.setName('pokemon')
@@ -5084,11 +5156,11 @@ new SlashCommandBuilder()
 
   new SlashCommandBuilder()
     .setName('reservepings')
-    .setDescription('Show taken Pokemon and their owners from the latest finished round'),  
+    .setDescription('Show taken Pokemon and their owners from the latest finished round'),
 
   new SlashCommandBuilder()
-  .setName('clearcd')
-  .setDescription('Cleared all cd for the server'),
+    .setName('clearcd')
+    .setDescription('Cleared all cd for the server'),
 
   new SlashCommandBuilder()
     .setName('transfer')
@@ -5098,7 +5170,7 @@ new SlashCommandBuilder()
 
   new SlashCommandBuilder()
     .setName('addnote')
-    .setDescription('Add a note to a slot. Max 3 per slot 50 characters each.')
+    .setDescription('Add a note to a slot. Max 3 per slot 70 characters each.')
     .addStringOption((option) => addAllSlotChoices(option.setName('slot').setDescription('Target slot')))
     .addStringOption((option) => option.setName('note').setDescription('Short note').setRequired(true)),
 
@@ -5130,7 +5202,7 @@ new SlashCommandBuilder()
         .setDescription('Turn watch mode on or off')
         .setRequired(true)
     ),
-  
+
   new SlashCommandBuilder()
     .setName('setwatchcooldown')
     .setDescription('Set Eevee watch cooldown in minutes')
@@ -5140,7 +5212,7 @@ new SlashCommandBuilder()
         .setDescription('Cooldown time in minutes')
         .setRequired(true)
     ),
-  
+
   new SlashCommandBuilder()
     .setName('watchstatus')
     .setDescription('Show Eevee watch settings'),
@@ -5219,7 +5291,7 @@ client.on('messageCreate', async (message) => {
     // =========================
     // INCENSE TRACKER
     // =========================
-    
+
     if (isIncenseBoughtMessage(message)) {
       if (!isTrackedIncenseChannel(guildId, message.channel.id)) return;
 
@@ -5260,34 +5332,34 @@ client.on('messageCreate', async (message) => {
     // after incense handling, ignore all other bot messages
     if (message.author.bot) return;
 
-		const content = message.content.trim().toLowerCase();
+    const content = message.content.trim().toLowerCase();
 
-		const channelId = message.channel?.id;
+    const channelId = message.channel?.id;
 
-		if (!guildId || !channelId) return;
+    if (!guildId || !channelId) return;
 
-		// =========================
-		// SHORTCUT COMMANDS (!p / !r)
-		// =========================
-		if (content === '!p') {
-			if (!isTrackedIncenseChannel(guildId, channelId)) return;
+    // =========================
+    // SHORTCUT COMMANDS (!p / !r)
+    // =========================
+    if (content === '!p') {
+      if (!isTrackedIncenseChannel(guildId, channelId)) return;
 
-			await pauseIncenseInChannel(message.channel);
+      await pauseIncenseInChannel(message.channel);
 
-			await message.reply('<:47:1496880430350336222> Channel paused.');
+      await message.reply('<:47:1496880430350336222> Channel paused.');
 
-			return;
-		}
+      return;
+    }
 
-		if (content === '!r') {
-			if (!isTrackedIncenseChannel(guildId, channelId)) return;
+    if (content === '!r') {
+      if (!isTrackedIncenseChannel(guildId, channelId)) return;
 
-			await resumeIncenseInChannel(message.channel);
+      await resumeIncenseInChannel(message.channel);
 
-			await message.reply('<:46:1496880428345458798> Channel resumed.');
+      await message.reply('<:46:1496880428345458798> Channel resumed.');
 
-			return;
-		}
+      return;
+    }
 
     // =========================
     // EXISTING WATCH FEATURE
@@ -5295,7 +5367,7 @@ client.on('messageCreate', async (message) => {
 
 
     const config = getWatchConfig(guildId);
-    
+
     if (!config) return;
 
     // enabled?
@@ -5388,6 +5460,8 @@ client.on('messageCreate', async (message) => {
     console.error('messageCreate error:', error);
   }
 });
+
+const buyerChannelId = process.env.BUYER_CHANNEL_ID.trim();
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
@@ -5500,7 +5574,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           content: enabled
             ? `Sponsor routing enabled. Steal reports will route to <@${sponsor.id}>.`
             : 'Sponsor routing disabled. Steal reports will route to Pokémon owners.',
-          
+
         });
       }
 
@@ -5546,7 +5620,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           content:
             `Added:\n${added.map(prettyPokemonName).join(', ') || 'None'}\n\n` +
             `Failed:\n${failed.map(prettyPokemonName).join(', ') || 'None'}`,
-          
+
         });
       }
 
@@ -5562,7 +5636,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: `Linked <@${alt.id}> → <@${main.id}>`,
-          
+
         });
       }
 
@@ -5583,7 +5657,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!matches.length) {
           return interaction.reply({
             content: `${prettyPokemonName(raw)} is not in any choice group.`,
-            
+
           });
         }
 
@@ -5628,249 +5702,249 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({
           content:
             `Removed:\n${removed.map(prettyPokemonName).join(', ') || 'None'}`,
-        
+
         });
       }
 
-			if (interaction.commandName === 'profile') {
+      if (interaction.commandName === 'profile') {
         await interaction.deferReply();
-			  const targetUser = interaction.options.getUser('user') || interaction.user;
-			
-			  const profileId = await getProfileIdForUser(guild.id, targetUser.id);
+        const targetUser = interaction.options.getUser('user') || interaction.user;
+
+        const profileId = await getProfileIdForUser(guild.id, targetUser.id);
         const mainText = `<@${profileId}>`;
-			  const profile = await getBuyerProfile(guild.id, targetUser.id);
-			
-			  if (!profile) {
-			    return interaction.editReply({
-			      content: `<@${targetUser.id}> does not have a buyer profile yet.`,
-			      
-			    });
-			  }
-			
-			  const linkedAlts = (await getLinkedAlts(guild.id, profileId))
+        const profile = await getBuyerProfile(guild.id, targetUser.id);
+
+        if (!profile) {
+          return interaction.editReply({
+            content: `<@${targetUser.id}> does not have a buyer profile yet.`,
+
+          });
+        }
+
+        const linkedAlts = (await getLinkedAlts(guild.id, profileId))
           .map((row) => `<@${row.user_id}>`)
           .join(', ') || 'None';
-			
-			  const embed = new EmbedBuilder()
-			    .setTitle(`${targetUser.username}'s Buyer Profile`)
-			    .setColor(0xFFB6C1)
-			    .addFields(
-			      { name: 'Title', value: getHighestProfileTitle(profile), inline: false },
-			      
-			      { name: 'Total Buys', value: String(profile.total_buys), inline: true },
-			      { name: 'Buyer Points', value: String(profile.choice_res_points), inline: true },
-			      { name: 'Rare Buys', value: String(profile.rare_buys), inline: true },
-			      { name: 'Regional Buys', value: String(profile.regional_buys), inline: true },
-			      { name: 'Gmax Buys', value: String(profile.gmax_buys), inline: true },
-			      { name: 'Eevee Buys', value: String(profile.eevos_buys), inline: true },
+
+        const embed = new EmbedBuilder()
+          .setTitle(`${targetUser.username}'s Buyer Profile`)
+          .setColor(0xFFB6C1)
+          .addFields(
+            { name: 'Title', value: getHighestProfileTitle(profile), inline: false },
+
+            { name: 'Total Buys', value: String(profile.total_buys), inline: true },
+            { name: 'Buyer Points', value: String(profile.choice_res_points), inline: true },
+            { name: 'Rare Buys', value: String(profile.rare_buys), inline: true },
+            { name: 'Regional Buys', value: String(profile.regional_buys), inline: true },
+            { name: 'Gmax Buys', value: String(profile.gmax_buys), inline: true },
+            { name: 'Eevee Buys', value: String(profile.eevos_buys), inline: true },
             { name: 'Choice Buys', value: String(profile.choice_buys), inline: true },
             { name: 'Single Res', value: String(profile.single_res_buys), inline: true },
             { name: 'Double Res', value: String(profile.double_res_buys), inline: true },
             { name: 'Main Profile', value: mainText, inline: false },
-			      { name: 'Linked Alts', value: linkedAlts, inline: false }
-			    )
-			    .setTimestamp();
-			
-			  return interaction.editReply({
-			    embeds: [embed],
-			  });
-			}
+            { name: 'Linked Alts', value: linkedAlts, inline: false }
+          )
+          .setTimestamp();
 
-			if (interaction.commandName === 'linkalt') {
-			  const mainUser = interaction.options.getUser('main', true);
-			
-			  if (mainUser.id === interaction.user.id) {
-			    return interaction.reply({
-			      content: 'You cannot link yourself as your own alt.',
-			      flags: EPHEMERAL,
-			    });
-			  }
-			
-			  await createPendingAltLink(guild.id, interaction.user.id, mainUser.id);
-			
-			  return interaction.reply({
-			    content:
-			      `Alt link requested.\n` +
-			      `This account <@${interaction.user.id}> will link under main profile <@${mainUser.id}> after staff approval.`,
-			    
-			  });
-			}
-			
-			if (interaction.commandName === 'approvealt') {
-			  if (!hasStaffRole(interaction.member)) {
-			    return interaction.reply({
-			      content: 'Only staff can approve alt links.',
-			      flags: EPHEMERAL,
-			    });
-			  }
-			
-			  const altUser = interaction.options.getUser('user', true);
-			  const result = await approveAltLink(guild.id, altUser.id, interaction.user.id);
-			
-			  if (!result) {
-			    return interaction.reply({
-			      content: `<@${altUser.id}> has no pending alt link.`,
-			      
-			    });
-			  }
-			
-			  return interaction.reply({
-			    content: `Approved alt link: <@${altUser.id}> → <@${result.profile_id}>.`,
-			    
-			  });
-			}
-			
-			if (interaction.commandName === 'unlinkalt') {
-			  if (!hasStaffRole(interaction.member)) {
-			    return interaction.reply({
-			      content: 'Only staff can unlink alts.',
-			      flags: EPHEMERAL,
-			    });
-			  }
-			
-			  const targetUser = interaction.options.getUser('user', true);
-			  const removed = await unlinkAlt(guild.id, targetUser.id);
-			
-			  return interaction.reply({
-			    content: removed
-			      ? `<@${targetUser.id}> has been unlinked.`
-			      : `<@${targetUser.id}> had no alt link.`,
-			    
-			  });
-			}
+        return interaction.editReply({
+          embeds: [embed],
+        });
+      }
 
-			if (interaction.commandName === 'resetprofile') {
-			  if (!hasStaffRole(interaction.member)) {
-			    return interaction.reply({
-			      content: 'Only staff can reset profiles.',
-			      flags: EPHEMERAL,
-			    });
-			  }
-			
-			  const targetUser = interaction.options.getUser('user', true);
-			
-			  await resetBuyerProfile(guild.id, targetUser.id);
-			
-			  return interaction.reply({
-			    content: `Buyer profile reset for <@${targetUser.id}>.`,
-			    
-			  });
-			}
-			
-			if (interaction.commandName === 'addpoints') {
-			  if (!hasStaffRole(interaction.member)) {
-			    return interaction.reply({
-			      content: 'Only staff can add points.',
-			      flags: EPHEMERAL,
-			    });
-			  }
-			
-			  const targetUser = interaction.options.getUser('user', true);
-			  const amount = interaction.options.getInteger('amount', true);
-			  const reason = interaction.options.getString('reason') || 'Manual add';
-			
-			  if (amount <= 0) {
-			    return interaction.reply({
-			      content: 'Amount must be positive.',
-			      flags: EPHEMERAL,
-			    });
-			  }
-			
-			  await adjustBuyerPoints(guild.id, targetUser.id, amount, reason, interaction.user.id);
-			
-			  return interaction.reply({
-			    content: `Added ${amount} points to <@${targetUser.id}>.`,
-			    
-			  });
-			}
-			
-			if (interaction.commandName === 'removepoints') {
-			  if (!hasStaffRole(interaction.member)) {
-			    return interaction.reply({
-			      content: 'Only staff can remove points.',
-			      flags: EPHEMERAL,
-			    });
-			  }
-			
-			  const targetUser = interaction.options.getUser('user', true);
-			  const amount = interaction.options.getInteger('amount', true);
-			  const reason = interaction.options.getString('reason') || 'Manual remove';
-			
-			  if (amount <= 0) {
-			    return interaction.reply({
-			      content: 'Amount must be positive.',
-			      flags: EPHEMERAL,
-			    });
-			  }
-			
-			  await adjustBuyerPoints(guild.id, targetUser.id, -amount, reason, interaction.user.id);
-			
-			  return interaction.reply({
-			    content: `Removed ${amount} points from <@${targetUser.id}>.`,
-			   
-			  });
-			}
+      if (interaction.commandName === 'linkalt') {
+        const mainUser = interaction.options.getUser('main', true);
 
-			if (interaction.commandName === 'exportprofiles') {
+        if (mainUser.id === interaction.user.id) {
+          return interaction.reply({
+            content: 'You cannot link yourself as your own alt.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        await createPendingAltLink(guild.id, interaction.user.id, mainUser.id);
+
+        return interaction.reply({
+          content:
+            `Alt link requested.\n` +
+            `This account <@${interaction.user.id}> will link under main profile <@${mainUser.id}> after staff approval.`,
+
+        });
+      }
+
+      if (interaction.commandName === 'approvealt') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can approve alt links.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const altUser = interaction.options.getUser('user', true);
+        const result = await approveAltLink(guild.id, altUser.id, interaction.user.id);
+
+        if (!result) {
+          return interaction.reply({
+            content: `<@${altUser.id}> has no pending alt link.`,
+
+          });
+        }
+
+        return interaction.reply({
+          content: `Approved alt link: <@${altUser.id}> → <@${result.profile_id}>.`,
+
+        });
+      }
+
+      if (interaction.commandName === 'unlinkalt') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can unlink alts.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const targetUser = interaction.options.getUser('user', true);
+        const removed = await unlinkAlt(guild.id, targetUser.id);
+
+        return interaction.reply({
+          content: removed
+            ? `<@${targetUser.id}> has been unlinked.`
+            : `<@${targetUser.id}> had no alt link.`,
+
+        });
+      }
+
+      if (interaction.commandName === 'resetprofile') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can reset profiles.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const targetUser = interaction.options.getUser('user', true);
+
+        await resetBuyerProfile(guild.id, targetUser.id);
+
+        return interaction.reply({
+          content: `Buyer profile reset for <@${targetUser.id}>.`,
+
+        });
+      }
+
+      if (interaction.commandName === 'addpoints') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can add points.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const targetUser = interaction.options.getUser('user', true);
+        const amount = interaction.options.getInteger('amount', true);
+        const reason = interaction.options.getString('reason') || 'Manual add';
+
+        if (amount <= 0) {
+          return interaction.reply({
+            content: 'Amount must be positive.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        await adjustBuyerPoints(guild.id, targetUser.id, amount, reason, interaction.user.id);
+
+        return interaction.reply({
+          content: `Added ${amount} points to <@${targetUser.id}>.`,
+
+        });
+      }
+
+      if (interaction.commandName === 'removepoints') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can remove points.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const targetUser = interaction.options.getUser('user', true);
+        const amount = interaction.options.getInteger('amount', true);
+        const reason = interaction.options.getString('reason') || 'Manual remove';
+
+        if (amount <= 0) {
+          return interaction.reply({
+            content: 'Amount must be positive.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        await adjustBuyerPoints(guild.id, targetUser.id, -amount, reason, interaction.user.id);
+
+        return interaction.reply({
+          content: `Removed ${amount} points from <@${targetUser.id}>.`,
+
+        });
+      }
+
+      if (interaction.commandName === 'exportprofiles') {
         await interaction.deferReply({ flags: EPHEMERAL });
-			  if (!hasStaffRole(interaction.member)) {
-			    return interaction.editReply({
-			      content: 'Only staff can export profiles.',
-			      flags: EPHEMERAL,
-			    });
-			  }
-			
-			  const csv = await buildProfilesCsv(guild.id);
-			  const buffer = Buffer.from(csv, 'utf8');
-			
-			  const file = new AttachmentBuilder(buffer, {
-			    name: `buyer-profiles-${guild.id}.csv`,
-			  });
-			
-			  return interaction.editReply({
-			    content: 'Buyer profile export:',
-			    files: [file],
-			    
-			  });
-			}
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.editReply({
+            content: 'Only staff can export profiles.',
+            flags: EPHEMERAL,
+          });
+        }
 
-			if (interaction.commandName === 'leaderboard') {
+        const csv = await buildProfilesCsv(guild.id);
+        const buffer = Buffer.from(csv, 'utf8');
+
+        const file = new AttachmentBuilder(buffer, {
+          name: `buyer-profiles-${guild.id}.csv`,
+        });
+
+        return interaction.editReply({
+          content: 'Buyer profile export:',
+          files: [file],
+
+        });
+      }
+
+      if (interaction.commandName === 'leaderboard') {
         await interaction.deferReply();
-			  const type = interaction.options.getString('type', true);
-			
-			  const rows = await getLeaderboard(guild.id, type);
-			
-			  if (!rows.length) {
-			    return interaction.editReply({
-			      content: 'No data yet.',
-			      flags: EPHEMERAL,
-			    });
-			  }
-			
-			  const titleMap = {
-			    points: 'Points Leaderboard',
-			    rare: 'Rare Buyers',
-			    regional: 'Regional Buyers',
-			    gmax: 'Gmax Buyers',
-			    eevee: 'Eevee Buyers',
-			  };
-			
-			  const description = rows
-			    .map((row, index) => {
-			      return `**${index + 1}.** <@${row.profile_id}> — ${row.value}`;
-			    })
-			    .join('\n');
-			
-			  const embed = new EmbedBuilder()
-			    .setTitle(`🏆 ${titleMap[type]}`)
-			    .setColor(0xFFD700)
-			    .setDescription(description)
-			    .setTimestamp();
-			
-			  return interaction.editReply({
-			    embeds: [embed],
-			  });
-			}
+        const type = interaction.options.getString('type', true);
+
+        const rows = await getLeaderboard(guild.id, type);
+
+        if (!rows.length) {
+          return interaction.editReply({
+            content: 'No data yet.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const titleMap = {
+          points: 'Points Leaderboard',
+          rare: 'Rare Buyers',
+          regional: 'Regional Buyers',
+          gmax: 'Gmax Buyers',
+          eevee: 'Eevee Buyers',
+        };
+
+        const description = rows
+          .map((row, index) => {
+            return `**${index + 1}.** <@${row.profile_id}> — ${row.value}`;
+          })
+          .join('\n');
+
+        const embed = new EmbedBuilder()
+          .setTitle(`🏆 ${titleMap[type]}`)
+          .setColor(0xFFD700)
+          .setDescription(description)
+          .setTimestamp();
+
+        return interaction.editReply({
+          embeds: [embed],
+        });
+      }
 
       if (interaction.commandName === 'forceupdate') {
         if (!hasStaffRole(interaction.member)) {
@@ -5893,7 +5967,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: 'Queue reconciled and force updated.',
-          
+
         });
       }
 
@@ -5937,7 +6011,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: 'Queue reposted in this channel. Old queue disabled.',
-          
+
         });
       }
 
@@ -5977,7 +6051,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             `Tracked channels: ${incenseRows.length}`,
         });
       }
-      
+
       if (interaction.commandName === 'incbought') {
         if (!hasStaffRole(interaction.member)) {
           return interaction.reply({
@@ -6002,7 +6076,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           embeds: [buildIncBoughtEmbed(rows)],
-          
+
         });
       }
 
@@ -6078,7 +6152,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: `Copied <@${fromUser.id}>'s announcement slot **${result.fromSlot}** into your slot **${result.toSlot}**.`,
-          
+
         });
       }
 
@@ -6145,7 +6219,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: `Announcement template slot set to **${activeNumber}**.`,
-          
+
         });
       }
 
@@ -6161,7 +6235,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: 'All tracked incense channels have been reset. <:9_:1496851117194219600>',
-          
+
         });
       }
 
@@ -6241,7 +6315,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: `Access ping saved as: ${ping}`,
-          
+
         });
       }
 
@@ -6265,7 +6339,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: 'Announcement emojis saved.',
-          
+
         });
       }
 
@@ -6359,11 +6433,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: `Added ${added} channel(s) from this category to incense tracking. <:9_:1496851117194219600>`,
-          
+
         });
       }
 
-			if (interaction.commandName === 'report') {
+      if (interaction.commandName === 'report') {
         const stealReportsChannelId = process.env.STEAL_REPORTS_CHANNEL_ID?.trim();
 
         if (!stealReportsChannelId) {
@@ -6464,10 +6538,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
           await thread.send({
             content:
-              `<:8_:1496851119450882110> So sorry a pokemon was stolen! ${
-                process.env.STAFF_ROLE_ID?.trim()
-                  ? `<@&${process.env.STAFF_ROLE_ID.trim()}>`
-                  : '@staff'
+              `<:8_:1496851119450882110> So sorry a pokemon was stolen! ${process.env.STAFF_ROLE_ID?.trim()
+                ? `<@&${process.env.STAFF_ROLE_ID.trim()}>`
+                : '@staff'
               } will help to resolve this:\n` +
               `<@${stealerId}> had stolen a **${pokemonName}** from <@${buyerId}>.\n\n` +
               `Estimated steal value: ${priceText}`,
@@ -6489,75 +6562,75 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
       }
 
-			if (interaction.commandName === 'closeticket') {
-				if (!interaction.channel?.isThread()) {
-					return interaction.reply({
-						content: 'This command can only be used inside a ticket thread.',
-						flags: EPHEMERAL,
-					});
-				}
+      if (interaction.commandName === 'closeticket') {
+        if (!interaction.channel?.isThread()) {
+          return interaction.reply({
+            content: 'This command can only be used inside a ticket thread.',
+            flags: EPHEMERAL,
+          });
+        }
 
-				if (!hasStaffRole(interaction.member)) {
-					return interaction.reply({
-						content: 'Only staff can use this command.',
-						flags: EPHEMERAL,
-					});
-				}
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use this command.',
+            flags: EPHEMERAL,
+          });
+        }
 
-				return interaction.reply({
-					content: 'Are you sure you want to close this ticket? <:9_:1496851117194219600>',
-					components: buildCloseTicketConfirmButtons(interaction.channel.id),
-					
-				});
-			}
+        return interaction.reply({
+          content: 'Are you sure you want to close this ticket? <:9_:1496851117194219600>',
+          components: buildCloseTicketConfirmButtons(interaction.channel.id),
 
-			if (interaction.commandName === 'addticket') {
-				if (!interaction.channel?.isThread()) {
-					return interaction.reply({
-						content: 'This command can only be used inside a ticket thread.',
-						flags: EPHEMERAL,
-					});
-				}
+        });
+      }
 
-				if (!hasStaffRole(interaction.member)) {
-					return interaction.reply({
-						content: 'Only staff can use this command.',
-						flags: EPHEMERAL,
-					});
-				}
+      if (interaction.commandName === 'addticket') {
+        if (!interaction.channel?.isThread()) {
+          return interaction.reply({
+            content: 'This command can only be used inside a ticket thread.',
+            flags: EPHEMERAL,
+          });
+        }
 
-				const targetUser = interaction.options.getUser('user', true);
-				await interaction.channel.members.add(targetUser.id).catch(() => null);
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use this command.',
+            flags: EPHEMERAL,
+          });
+        }
 
-				return interaction.reply({
-					content: `Added <@${targetUser.id}> to this ticket. <:9_:1496851117194219600>`,
-					
-				});
-			}
+        const targetUser = interaction.options.getUser('user', true);
+        await interaction.channel.members.add(targetUser.id).catch(() => null);
 
-			if (interaction.commandName === 'removeticket') {
-				if (!interaction.channel?.isThread()) {
-					return interaction.reply({
-						content: 'This command can only be used inside a ticket thread.',
-						flags: EPHEMERAL,
-					});
-				}
+        return interaction.reply({
+          content: `Added <@${targetUser.id}> to this ticket. <:9_:1496851117194219600>`,
 
-				if (!hasStaffRole(interaction.member)) {
-					return interaction.reply({
-						content: 'Only staff can use this command.',
-						flags: EPHEMERAL,
-					});
-				}
+        });
+      }
 
-				const targetUser = interaction.options.getUser('user', true);
-				await interaction.channel.members.remove(targetUser.id).catch(() => null);
+      if (interaction.commandName === 'removeticket') {
+        if (!interaction.channel?.isThread()) {
+          return interaction.reply({
+            content: 'This command can only be used inside a ticket thread.',
+            flags: EPHEMERAL,
+          });
+        }
 
-				return interaction.reply({
-					content: `Removed <@${targetUser.id}> from this ticket. <:9_:1496851117194219600>`,
-					flags: EPHEMERAL,
-				});
-			}
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use this command.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const targetUser = interaction.options.getUser('user', true);
+        await interaction.channel.members.remove(targetUser.id).catch(() => null);
+
+        return interaction.reply({
+          content: `Removed <@${targetUser.id}> from this ticket. <:9_:1496851117194219600>`,
+          flags: EPHEMERAL,
+        });
+      }
 
       if (interaction.commandName === 'pause') {
         const row = getIncenseChannelRow(guild.id, interaction.channel.id);
@@ -6580,7 +6653,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: 'Incense paused in this channel. <a:12:1496852954328858624>',
-          
+
         });
       }
 
@@ -6605,7 +6678,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: 'Incense resumed in this channel. <a:12:1496852954328858624>',
-          
+
         });
       }
 
@@ -6619,7 +6692,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         await interaction.reply({
           content: 'Pausing all incense channels <:9_:1496851117194219600>',
-          
+
         });
 
         const channels = await getTrackedIncenseChannels(guild);
@@ -6642,7 +6715,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // ✅ reply instantly
         await interaction.reply({
           content: 'Resuming all incense channels <:9_:1496851117194219600>',
-          
+
         });
 
         // ✅ do work AFTER reply (no timeout issues)
@@ -6668,7 +6741,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (existing) {
           return interaction.reply({
             content: 'This channel is already tracked for incense.',
-            
+
           });
         }
 
@@ -6683,7 +6756,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: 'Channel added to incense tracking. <a:12:1496852954328858624>',
-          
+
         });
       }
 
@@ -6703,7 +6776,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!existing) {
           return interaction.reply({
             content: 'This channel is not tracked for incense.',
-            
+
           });
         }
 
@@ -6724,7 +6797,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: 'Channel removed from incense tracking. <a:12:1496852954328858624>',
-          
+
         });
       }
 
@@ -6986,11 +7059,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
             flags: EPHEMERAL,
           });
         }
-      
+
         const channel = interaction.options.getChannel('channel', true);
-      
+
         setWatchChannel(guild.id, channel.id);
-      
+
         return interaction.reply({
           content: `Eevee watch channel set to <#${channel.id}>.`,
           flags: EPHEMERAL,
@@ -7004,11 +7077,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
             flags: EPHEMERAL,
           });
         }
-      
+
         const enabled = interaction.options.getBoolean('enabled', true);
-      
+
         setWatchEnabled(guild.id, enabled);
-      
+
         return interaction.reply({
           content: `Eevee watch is now **${enabled ? 'enabled' : 'disabled'}**.`,
           flags: EPHEMERAL,
@@ -7022,18 +7095,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
             flags: EPHEMERAL,
           });
         }
-      
+
         const minutes = interaction.options.getInteger('minutes', true);
-      
+
         if (minutes < 1) {
           return interaction.reply({
             content: 'Cooldown must be at least 1 minute.',
             flags: EPHEMERAL,
           });
         }
-      
+
         setWatchCooldown(guild.id, minutes);
-      
+
         return interaction.reply({
           content: `Eevee watch cooldown set to **${minutes} minute(s)**.`,
           flags: EPHEMERAL,
@@ -7047,10 +7120,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
             flags: EPHEMERAL,
           });
         }
-      
+
         ensureWatchConfig(guild.id);
         const config = getWatchConfig(guild.id);
-      
+
         return interaction.reply({
           content:
             `**Eevee Watch Status**\n` +
@@ -7061,7 +7134,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: EPHEMERAL,
         });
       }
-      
+
       if (interaction.commandName === 'clearcd') {
         if (!hasStaffRole(interaction.member)) {
           return interaction.reply({
@@ -7085,7 +7158,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           WHERE guild_id = ?
         `).run(guild.id);
 
-		db.prepare(`
+        db.prepare(`
 		  DELETE FROM temporary_pokemon_cooldowns
 		  WHERE guild_id = ?
 		`).run(guild.id);
@@ -7099,7 +7172,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: 'All cooldown history cleared for this server. <:9_:1496851117194219600>',
-          
+
         });
       }
 
@@ -7128,8 +7201,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const majorLines = previousRoundMajorRows.length
           ? previousRoundMajorRows.map((row) =>
-              `• ${prettyUsername(guild, row.user_id)} → last round: ${prettySlotLabel(row.slot_key)}`
-            )
+            `• ${prettyUsername(guild, row.user_id)} → last round: ${prettySlotLabel(row.slot_key)}`
+          )
           : ['• None'];
 
         const eventRows = db.prepare(`
@@ -7141,24 +7214,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const eventLines = eventRows.length
           ? eventRows.map((row) => {
-              const roundsAgo = Math.max(1, currentRound - row.round_number + 1);
+            const roundsAgo = Math.max(1, currentRound - row.round_number + 1);
 
-              const ageText =
-                roundsAgo === 1 ? 'last round'
+            const ageText =
+              roundsAgo === 1 ? 'last round'
                 : roundsAgo === 2 ? 'last 2 rounds ago'
-                : `${roundsAgo} rounds ago`;
+                  : `${roundsAgo} rounds ago`;
 
-              return `• ${prettyUsername(guild, row.user_id)} → ${ageText}`;
-            })
+            return `• ${prettyUsername(guild, row.user_id)} → ${ageText}`;
+          })
           : ['• None'];
 
         return interaction.reply({
           content:
             `**Major Cooldowns**\n${majorLines.join('\n')}\n\n` +
             `**Event Cooldowns**\n${eventLines.join('\n')}`,
-          
+
         });
-      
+
       }
 
       if (interaction.commandName === 'startqueue') {
@@ -7286,13 +7359,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
               `- <a:19:1496863760579563681> Use **/pick** for reserves.\n` +
               `- <a:16:1496863754342891662> Use **/choosegroup** for choice slots.\n` +
               `- <a:18:1496863758826475590> Use **/chooserare** for Choice and Gmax rare.\n` +
-              `- <a:21:1496863774211051580> Use **/clearres** to remove one chosen reserve.\n` + 
+              `- <a:21:1496863774211051580> Use **/clearres** to remove one chosen reserve.\n` +
               `- <a:20:1496863771900116994> Use **/clearallres** to remove all reserves chosen so far.\n` +
               `- <a:22:1496863775867801650> Use **/setffa** for Choice ffa.\n` +
               `- <a:23:1496863777973604532> Use **/withdraw** to release your slot.\n` +
               `- <a:24:1496863780532125806> Use **/transfer** to give your claimed group to someone else.\n` +
               `- <a:2_:1496851133019328662> Use **/addnote** to add a note to your slot.\n` +
-              `Eevee loves everyone so head to <#1348887891874549781> to run commands <a:5_:1496851126996307999> ~ ~`, 
+              `Eevee loves everyone so head to <#${buyerChannelId}> to run commands <a:5_:1496851126996307999> ~ ~`,
             allowedMentions: {
               roles: openBuyerRoleIds,
             },
@@ -7356,13 +7429,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         rolloverClaimHistoryToPreviousRound(guild.id);
 
-				const profileAwardResult = await awardBuyerProfilesForFinishedRound(guild.id);
-				
-				if (profileAwardResult.reason === 'already_awarded') {
-				  console.log('[profile] Awards already given for this round.');
-				}
-				
-				const queueMessage = await finishQueueAndAnnounce(guild, user.id);
+        const profileAwardResult = await awardBuyerProfilesForFinishedRound(guild.id);
+
+        if (profileAwardResult.reason === 'already_awarded') {
+          console.log('[profile] Awards already given for this round.');
+        }
+
+        const queueMessage = await finishQueueAndAnnounce(guild, user.id);
 
         await sendOrgLog(
           guild,
@@ -7460,16 +7533,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
 
         return interaction.reply({
-            embeds: [embed],
-            components: [
-                new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`copylist:${guild.id}:history`)
-                    .setLabel('Copy history list')
-                    .setStyle(ButtonStyle.Primary)
-                ),
-            ],
-            });
+          embeds: [embed],
+          components: [
+            new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`copylist:${guild.id}:history`)
+                .setLabel('Copy history list')
+                .setStyle(ButtonStyle.Primary)
+            ),
+          ],
+        });
       }
 
       if (interaction.commandName === 'reservepings') {
@@ -7487,11 +7560,79 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
 
+      if (interaction.commandName === 'setmajorffa') {
+        const state = getQueueState(guild.id);
+        if (!state) {
+          return interaction.reply({
+            content: 'No active queue right now.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        if (
+          interaction.channel.id !== buyerChannelId &&
+          !hasStaffRole(interaction.member)
+        ) {
+          return interaction.reply({
+            content: `You may only run this command in <#${buyerChannelId}>.`,
+            flags: EPHEMERAL,
+          });
+        }
+
+        const slotKey = interaction.options.getString('slot', true);
+        const rawList = interaction.options.getString('pokemon', true);
+        const slot = getSlot(guild.id, slotKey);
+
+        if (!isMajorFfaSlot(slotKey)) {
+          return interaction.reply({
+            content: 'Major FFA can only be set for Rare, Regional, Gmax, or Eevees.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        if (!slot || slot.user_id !== user.id) {
+          return interaction.reply({
+            content: 'You can only set FFA for your own claimed major slot.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const requestedPokemon = rawList
+          .split(',')
+          .map((name) =>
+            normalizePokemonName(name)
+              .replace(/^-+|-+$/g, '')
+          )
+          .filter(Boolean);
+
+        const uniquePokemon = [...new Set(requestedPokemon)];
+
+        saveSlotFfaPokemon(guild.id, slotKey, uniquePokemon);
+
+        await refreshQueueMessage(guild);
+
+        return interaction.reply({
+          content: `FFA set for **${slot.slot_label}**: ${uniquePokemon.map(prettyPokemonName).join(', ') || 'None'}`,
+          flags: EPHEMERAL,
+        });
+      }
+
       if (interaction.commandName === 'setffa') {
         const state = getQueueState(guild.id);
         if (!state) {
           return interaction.reply({
             content: 'No active queue right now.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        // ensure this only works in funky-buyers, unless staff
+        if (
+          interaction.channel.id !== buyerChannelId &&
+          !hasStaffRole(interaction.member)
+        ) {
+          return interaction.reply({
+            content: `You may only run this command in <#${buyerChannelId}>.`,
             flags: EPHEMERAL,
           });
         }
@@ -7541,7 +7682,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (invalidPokemon.length) {
           return interaction.reply({
             content: `These Pokemon are not in ${prettyGroupName(slot.choice_group_name)}: ${invalidPokemon.map(prettyPokemonName).join(', ')}`,
-            
+
           });
         }
 
@@ -7573,19 +7714,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
             flags: EPHEMERAL,
           });
         }
-		  
-		const buyerChannelId = process.env.BUYER_CHANNEL_ID.trim();
 
-		// ensure /choosegroup only works in funky-buyers, unless staff
-		if (
-		  interaction.channel.id !== buyerChannelId &&
-		  !hasStaffRole(interaction.member)
-		) {
-		  return interaction.reply({
-		    content: `You may only run this command in <#${buyerChannelId}>.`,
-		    flags: EPHEMERAL,
-		  });
-		}
+        // ensure this only works in funky-buyers, unless staff
+        if (
+          interaction.channel.id !== buyerChannelId &&
+          !hasStaffRole(interaction.member)
+        ) {
+          return interaction.reply({
+            content: `You may only run this command in <#${buyerChannelId}>.`,
+            flags: EPHEMERAL,
+          });
+        }
 
         const slotKey = interaction.options.getString('slot', true);
         const groupName = interaction.options.getString('group', true).trim().toLowerCase();
@@ -7609,7 +7748,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!CHOICE_GROUP_NAMES.includes(groupName)) {
           return interaction.reply({
             content: 'That choice group does not exist.',
-            
+
           });
         }
         const groupPokemon = getChoiceGroupByName(groupName);
@@ -7624,7 +7763,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
               `You cannot choose **${prettyGroupName(groupName)}** because you are on cooldown for:\n` +
               cooldownPokemon.map((name) => `**${prettyPokemonName(name)}**`).join(', ') +
               `\nCooldown clears after buyers reping. <:8_:1496851119450882110>`,
-            
+
           });
         }
 
@@ -7663,18 +7802,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
             flags: EPHEMERAL,
           });
         }
-		const buyerChannelId = process.env.BUYER_CHANNEL_ID.trim();
 
-		// ensure /pick only works in funky-buyers, unless staff
-		if (
-		  interaction.channel.id !== buyerChannelId &&
-		  !hasStaffRole(interaction.member)
-		) {
-		  return interaction.reply({
-		    content: `You may only run this command in <#${buyerChannelId}>.`,
-		    flags: EPHEMERAL,
-		  });
-		}
+        // ensure this only works in funky-buyers, unless staff
+        if (
+          interaction.channel.id !== buyerChannelId &&
+          !hasStaffRole(interaction.member)
+        ) {
+          return interaction.reply({
+            content: `You may only run this command in <#${buyerChannelId}>.`,
+            flags: EPHEMERAL,
+          });
+        }
 
         const rawInput = interaction.options.getString('pokemon', true);
 
@@ -7686,7 +7824,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!requestedRawPokemon.length) {
           return interaction.reply({
             content: 'Enter at least one Pokemon name.',
-            
+
           });
         }
 
@@ -7695,7 +7833,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!ownedSlots.length) {
           return interaction.reply({
             content: 'You do not own any pickable normal slots right now.',
-            
+
           });
         }
 
@@ -7718,7 +7856,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (invalidPokemon.length) {
           return interaction.reply({
             content: `These Pokemon are invalid: <:8_:1496851119450882110> ${invalidPokemon.join(', ')}`,
-            
+
           });
         }
 
@@ -7735,7 +7873,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (usedCountBefore + uniquePokemon.length > totalCapacity) {
           return interaction.reply({
             content: `You are trying to pick ${uniquePokemon.length} Pokemon but only have ${totalCapacity - usedCountBefore} space left.<:8_:1496851119450882110>  Use **/clearres** or **/clearallres** if you want to repick.`,
-            
+
           });
         }
 
@@ -7842,12 +7980,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
+        // ensure this only works in funky-buyers, unless staff
+        if (
+          interaction.channel.id !== buyerChannelId &&
+          !hasStaffRole(interaction.member)
+        ) {
+          return interaction.reply({
+            content: `You may only run this command in <#${buyerChannelId}>.`,
+            flags: EPHEMERAL,
+          });
+        }
+
         const ownedSlots = getOwnedPickableSlots(guild.id, user.id);
 
         if (!ownedSlots.length) {
           return interaction.reply({
             content: 'You do not own any pickable normal slots right now.',
-            
+
           });
         }
 
@@ -7859,7 +8008,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!pokemonName || !VALID_POKEMON.has(pokemonName)) {
           return interaction.reply({
             content: `**${rawPokemon}** is not a valid Pokemon name. <:8_:1496851119450882110>`,
-            
+
           });
         }
 
@@ -7868,7 +8017,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!removed) {
           return interaction.reply({
             content: `**${prettyPokemonName(pokemonName)}** is not currently owned by you. <:8_:1496851119450882110>`,
-            
+
           });
         }
 
@@ -7877,7 +8026,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: `Removed **${prettyPokemonName(pokemonName)}** from your chosen Pokémon. <:9_:1496851117194219600>`,
-          
+
         });
       }
 
@@ -7890,12 +8039,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
+        // ensure this only works in funky-buyers, unless staff
+        if (
+          interaction.channel.id !== buyerChannelId &&
+          !hasStaffRole(interaction.member)
+        ) {
+          return interaction.reply({
+            content: `You may only run this command in <#${buyerChannelId}>.`,
+            flags: EPHEMERAL,
+          });
+        }
+
         const ownedSlots = getOwnedPickableSlots(guild.id, user.id);
 
         if (!ownedSlots.length) {
           return interaction.reply({
             content: 'You do not own any pickable normal slots right now. <:8_:1496851119450882110>',
-            
+
           });
         }
 
@@ -7908,7 +8068,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: 'All your chosen Pokémon were cleared. You can repick now. <:9_:1496851117194219600>',
-          
+
         });
       }
 
@@ -7917,6 +8077,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!state) {
           return interaction.reply({
             content: 'No active queue right now.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        // ensure this only works in funky-buyers, unless staff
+        if (
+          interaction.channel.id !== buyerChannelId &&
+          !hasStaffRole(interaction.member)
+        ) {
+          return interaction.reply({
+            content: `You may only run this command in <#${buyerChannelId}>.`,
             flags: EPHEMERAL,
           });
         }
@@ -7943,7 +8114,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!RARE_POKEMON.has(rareText)) {
           return interaction.reply({
             content: `**${prettyPokemonName(rareText)}** is not a valid rare Pokemon name. <:8_:1496851119450882110>`,
-            
+
           });
         }
 
@@ -7960,6 +8131,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!state) {
           return interaction.reply({
             content: 'No active queue right now.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        // ensure this only works in funky-buyers, unless staff
+        if (
+          interaction.channel.id !== buyerChannelId &&
+          !hasStaffRole(interaction.member)
+        ) {
+          return interaction.reply({
+            content: `You may only run this command in <#${buyerChannelId}>.`,
             flags: EPHEMERAL,
           });
         }
@@ -7991,6 +8173,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
+        // ensure this only works in funky-buyers, unless staff
+        if (
+          interaction.channel.id !== buyerChannelId &&
+          !hasStaffRole(interaction.member)
+        ) {
+          return interaction.reply({
+            content: `You may only run this command in <#${buyerChannelId}>.`,
+            flags: EPHEMERAL,
+          });
+        }
+
         const slotKey = interaction.options.getString('slot', true);
         const targetUser = interaction.options.getUser('user', true);
         const slot = getSlot(guild.id, slotKey);
@@ -7999,7 +8192,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!slotDef || !slot || slot.user_id !== user.id) {
           return interaction.reply({
             content: 'You can only transfer your own claimed slot.',
-            
+
           });
         }
 
@@ -8014,7 +8207,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
-       db.prepare(`
+        db.prepare(`
         UPDATE slots
         SET user_id = ?
         WHERE guild_id = ? AND slot_key = ?
@@ -8022,23 +8215,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 
 
-      if (isEventSlot(slotKey)) {
-        removeCurrentRoundEventClaim(guild.id, user.id);
-        setCurrentRoundEventClaim(guild.id, targetUser.id);
-      }
+        if (isEventSlot(slotKey)) {
+          removeCurrentRoundEventClaim(guild.id, user.id);
+          setCurrentRoundEventClaim(guild.id, targetUser.id);
+        }
 
-      await refreshQueueMessage(guild);
+        await refreshQueueMessage(guild);
 
-      await sendActionLog(
-        guild,
-        `<@${interaction.user.id}> transferred \`${slotDef.label}\` to <@${targetUser.id}>`,
-        null,
-        'transfer'
-      );
+        await sendActionLog(
+          guild,
+          `<@${interaction.user.id}> transferred \`${slotDef.label}\` to <@${targetUser.id}>`,
+          null,
+          'transfer'
+        );
 
-      return interaction.reply({
-        content: `Transferred **${slotDef.label}** to <@${targetUser.id}>. <:9_:1496851117194219600>`,
-      });
+        return interaction.reply({
+          content: `Transferred **${slotDef.label}** to <@${targetUser.id}>. <:9_:1496851117194219600>`,
+        });
       }
 
       if (interaction.commandName === 'addnote') {
@@ -8046,6 +8239,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!state) {
           return interaction.reply({
             content: 'No active queue right now.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        // ensure this only works in funky-buyers, unless staff
+        if (
+          interaction.channel.id !== buyerChannelId &&
+          !hasStaffRole(interaction.member)
+        ) {
+          return interaction.reply({
+            content: `You may only run this command in <#${buyerChannelId}>.`,
             flags: EPHEMERAL,
           });
         }
@@ -8077,25 +8281,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!result.ok) {
           if (result.reason === 'empty_note') {
             return interaction.reply({
-            content: 'Note cannot be empty.',
-            flags: EPHEMERAL,
-          });
-        }
+              content: 'Note cannot be empty.',
+              flags: EPHEMERAL,
+            });
+          }
 
-        if (result.reason === 'note_too_long') {
-          return interaction.reply({
-            content: `Note is too long. Maximum length is ${MAX_NOTE_LENGTH} characters.`,
-            flags: EPHEMERAL,
-          });
-        }
+          if (result.reason === 'note_too_long') {
+            return interaction.reply({
+              content: `Note is too long. Maximum length is ${MAX_NOTE_LENGTH} characters.`,
+              flags: EPHEMERAL,
+            });
+          }
 
-        if (result.reason === 'max_notes') {
-          return interaction.reply({
-            content: `That slot already has the maximum of ${MAX_NOTES_PER_SLOT} notes.`,
-            flags: EPHEMERAL,
-          });
+          if (result.reason === 'max_notes') {
+            return interaction.reply({
+              content: `That slot already has the maximum of ${MAX_NOTES_PER_SLOT} notes.`,
+              flags: EPHEMERAL,
+            });
+          }
         }
-      }
 
         await refreshQueueMessage(guild);
 
@@ -8108,7 +8312,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: `Added note to **${slotDef.label}**. <:9_:1496851117194219600>`,
-          
+
         });
       }
 
@@ -8131,19 +8335,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         clearSlotNotes(guild.id, slotKey);
-          await refreshQueueMessage(guild);
+        await refreshQueueMessage(guild);
 
-          await sendActionLog(
-            guild,
-            `/clearnotes by <@${interaction.user.id}> on \`${slotDef.label}\``,
-            null,
-            'note'
-          );
+        await sendActionLog(
+          guild,
+          `/clearnotes by <@${interaction.user.id}> on \`${slotDef.label}\``,
+          null,
+          'note'
+        );
 
-          return interaction.reply({
-            content: `Removed all notes from **${slotDef.label}**. <:9_:1496851117194219600>`,
-            
-          });
+        return interaction.reply({
+          content: `Removed all notes from **${slotDef.label}**. <:9_:1496851117194219600>`,
+
+        });
       }
 
       if (interaction.commandName === 'adminremove') {
@@ -8192,7 +8396,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: `Removed <@${removedUserId}> from **${slotDef.label}**. <:8_:1496851119450882110>`,
-          
+
         });
       }
 
@@ -8206,7 +8410,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // BUTTONS
     // =========================
     if (interaction.isButton()) {
-      
+
       const parts = interaction.customId.split(':');
       const action = parts[0];
 
@@ -8257,59 +8461,59 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
 
-			
-			if (action === 'closeticketconfirm') {
-				const threadId = parts[1];
-				const confirmAction = parts[2];
 
-				if (confirmAction === 'no') {
-					return interaction.update({
-						content: 'Ticket close cancelled.',
-						components: [],
-					});
-				}
+      if (action === 'closeticketconfirm') {
+        const threadId = parts[1];
+        const confirmAction = parts[2];
 
-				const thread = await interaction.guild.channels.fetch(threadId).catch(() => null);
-				if (!thread || !thread.isThread()) {
-					return interaction.update({
-						content: 'Thread not found.',
-						components: [],
-					});
-				}
+        if (confirmAction === 'no') {
+          return interaction.update({
+            content: 'Ticket close cancelled.',
+            components: [],
+          });
+        }
 
-				const transcriptText = await buildThreadTranscript(thread);
-				const transcriptBuffer = Buffer.from(transcriptText, 'utf8');
-				const transcriptName = `${thread.name}-transcript.txt`;
+        const thread = await interaction.guild.channels.fetch(threadId).catch(() => null);
+        if (!thread || !thread.isThread()) {
+          return interaction.update({
+            content: 'Thread not found.',
+            components: [],
+          });
+        }
 
-				const transcriptLogChannelId = process.env.STEAL_TRANSCRIPTS_CHANNEL_ID?.trim();
-				const transcriptLogChannel = transcriptLogChannelId
-					? await interaction.guild.channels.fetch(transcriptLogChannelId).catch(() => null)
-					: null;
+        const transcriptText = await buildThreadTranscript(thread);
+        const transcriptBuffer = Buffer.from(transcriptText, 'utf8');
+        const transcriptName = `${thread.name}-transcript.txt`;
 
-				if (transcriptLogChannel && typeof transcriptLogChannel.send === 'function') {
-					const closeEmbed = new EmbedBuilder()
-						.setTitle('Steal Ticket Closed')
-						.setColor(0x57F287)
-						.addFields(
-							{ name: 'Thread', value: thread.name, inline: false },
-							{ name: 'Closed By', value: `<@${interaction.user.id}> (${interaction.user.id})`, inline: false }
-						)
-						.setTimestamp();
+        const transcriptLogChannelId = process.env.STEAL_TRANSCRIPTS_CHANNEL_ID?.trim();
+        const transcriptLogChannel = transcriptLogChannelId
+          ? await interaction.guild.channels.fetch(transcriptLogChannelId).catch(() => null)
+          : null;
 
-					await transcriptLogChannel.send({
-						embeds: [closeEmbed],
-						files: [{ attachment: transcriptBuffer, name: transcriptName }],
-					}).catch(() => null);
-				}
+        if (transcriptLogChannel && typeof transcriptLogChannel.send === 'function') {
+          const closeEmbed = new EmbedBuilder()
+            .setTitle('Steal Ticket Closed')
+            .setColor(0x57F287)
+            .addFields(
+              { name: 'Thread', value: thread.name, inline: false },
+              { name: 'Closed By', value: `<@${interaction.user.id}> (${interaction.user.id})`, inline: false }
+            )
+            .setTimestamp();
 
-				await interaction.update({
-					content: 'Ticket closed. Transcript saved.',
-					components: [],
-				});
+          await transcriptLogChannel.send({
+            embeds: [closeEmbed],
+            files: [{ attachment: transcriptBuffer, name: transcriptName }],
+          }).catch(() => null);
+        }
 
-				await thread.delete().catch(() => null);
-				return;
-			}
+        await interaction.update({
+          content: 'Ticket closed. Transcript saved.',
+          components: [],
+        });
+
+        await thread.delete().catch(() => null);
+        return;
+      }
 
       if (action === 'endqueue_cancel') {
         return interaction.update({
@@ -8463,22 +8667,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
         }
 
-          if (isEventSlot(slotKey)) {
-            const currentState = getQueueState(interaction.guild.id);
-            const blockedRounds = [
-              currentState.round_number - 1,
-              currentState.round_number - 2,
-            ];
+        if (isEventSlot(slotKey)) {
+          const currentState = getQueueState(interaction.guild.id);
+          const blockedRounds = [
+            currentState.round_number - 1,
+            currentState.round_number - 2,
+          ];
 
-            console.log('EVENT CD CHECK', {
-              guildId: interaction.guild.id,
-              userId,
-              currentRound: currentState.round_number,
-              blockedRounds,
-              slotKey,
-            });
+          console.log('EVENT CD CHECK', {
+            guildId: interaction.guild.id,
+            userId,
+            currentRound: currentState.round_number,
+            blockedRounds,
+            slotKey,
+          });
 
-            const recentEventClaim = db.prepare(`
+          const recentEventClaim = db.prepare(`
               SELECT *
               FROM event_claim_history
               WHERE guild_id = ?
@@ -8486,35 +8690,35 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 AND round_number IN (?, ?)
               LIMIT 1
             `).get(
-              interaction.guild.id,
-              userId,
-              blockedRounds[0],
-              blockedRounds[1]
-            );
+            interaction.guild.id,
+            userId,
+            blockedRounds[0],
+            blockedRounds[1]
+          );
 
-            console.log('EVENT CD RESULT', recentEventClaim);
+          console.log('EVENT CD RESULT', recentEventClaim);
 
-            if (recentEventClaim) {
-              return interaction.editReply({
-                content: 'You cannot claim an event slot for 2 rounds after taking one.',
-              });
-            }
+          if (recentEventClaim) {
+            return interaction.editReply({
+              content: 'You cannot claim an event slot for 2 rounds after taking one.',
+            });
           }
+        }
 
 
         if (MAJOR_SLOT_KEYS.has(slotKey)) {
-		  const guild = interaction.guild;
+          const guild = interaction.guild;
           const state = getQueueState(guild.id);
 
           if (
-		    MAJOR_SLOT_KEYS.has(slotKey) &&
-		    getUserMajorClaimCount(interaction.guild.id, interaction.user.id) >= 2 &&
-		    !state?.cooldown_cleared
-	  	  ) {
-		    return interaction.editReply({
-		      content: 'You can only claim 2 major slots until buyers are repinged.',
-		    });
-		  }
+            MAJOR_SLOT_KEYS.has(slotKey) &&
+            getUserMajorClaimCount(interaction.guild.id, interaction.user.id) >= 2 &&
+            !state?.cooldown_cleared
+          ) {
+            return interaction.editReply({
+              content: 'You can only claim 2 major slots until buyers are repinged.',
+            });
+          }
 
           if (hadSlotLastRound(interaction.guild.id, userId, slotKey)) {
             return interaction.editReply({
@@ -8554,8 +8758,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await refreshQueueMessage(interaction.guild);
 
         if (slotKey === 'eevos' || slotKey === 'gmax') {
-  		  await announceChooseTimePriority(interaction);
-		}
+          await announceChooseTimePriority(interaction);
+        }
 
         await sendActionLog(
           interaction.guild,
@@ -8575,26 +8779,46 @@ client.on(Events.InteractionCreate, async (interaction) => {
           content: `You claimed ${slotDef.label}. Now use **/pick** to choose your Pokémon.`,
         });
       }
-    
+
 
       if (action === 'confirmrelease') {
         const slotKey = parts[2];
         const answer = parts[3];
-        const slot = getSlot(interaction.guild.id, slotKey);
         const slotDef = getSlotDef(slotKey);
 
-        if (!slotDef || !slot || slot.user_id !== interaction.user.id) {
+        if (answer === 'no') {
           return interaction.update({
-            content: 'That slot is now released.',
+            content: `Cancelled release for **${slotDef?.label ?? slotKey}**.`,
             components: [],
           });
         }
 
-        if (answer === 'no') {
+        // Read slot BEFORE resetting
+        const slot = getSlot(interaction.guild.id, slotKey);
+
+        if (!slotDef || !slot || !slot.user_id) {
           return interaction.update({
-            content: `Cancelled release for **${slotDef.label}**.`,
+            content: 'That slot is already released.',
             components: [],
           });
+        }
+
+        if (slot.user_id !== interaction.user.id) {
+          return interaction.update({
+            content: 'You can only release your own slot.',
+            components: [],
+          });
+        }
+
+        // build a string stating what Pokemon are released
+        let toBeFfaStr = `<@${interaction.user.id}> released **${slotDef.label}**.\n\n**Pokémon that were in this slot**: `
+
+        toBeFfaStr += getAllOwnedPokemonForSlot(slot)
+          .map(prettyPokemonName)
+          .join(', ') || 'N/A';
+
+        if (slot.chosen_rare) {
+          toBeFfaStr += `\n\n**Goes back to original buyer**: ${prettyPokemonName(slot.chosen_rare)}`
         }
 
         resetSlot(interaction.guild.id, slotKey);
@@ -8607,9 +8831,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
           'withdraw'
         );
 
-        return interaction.update({
-          content: `You released **${slotDef.label}**.`,
-          components: [],
+        await interaction.update({ content: `Released.`, components: [] });
+
+        return interaction.channel.send({
+          content: `${toBeFfaStr}`,
         });
       }
 
@@ -8649,12 +8874,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
             });
           }
         }
-        
+
         return interaction.reply({
           content: mode === 'lock'
             ? 'Boosters and Donor locked.'
             : 'Boosters and Donor unlocked.',
-          
+
         });
       }
 
@@ -8707,7 +8932,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         flags: EPHEMERAL,
       });
     }
-    
+
   } catch (error) {
     console.error(error);
 
@@ -8723,17 +8948,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isAutocomplete()) {
       try {
         await interaction.respond([]);
-      } catch {}
+      } catch { }
       return;
     }
-    
+
 
     try {
       await interaction.reply(payload);
-    } catch {}
-      }
-    });
-  
+    } catch { }
+  }
+});
+
 
 process.on('unhandledRejection', (error) => {
   console.error('Unhandled promise rejection:', error);
@@ -8755,6 +8980,7 @@ async function registerCommands() {
   try {
     await registerCommands();
     console.log('Slash commands registered.');
+    buildPokemonAliasLookup();
     await client.login(process.env.DISCORD_TOKEN);
     console.log('Login call completed.');
   } catch (error) {
