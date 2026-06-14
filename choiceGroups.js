@@ -9,24 +9,10 @@ const CHOICE_GROUPS = {
     'gastrodon',
     'karrablast',
     'kecleon',
-    'munchlax',`
+    'munchlax',
     'poltchageist',
     'shuckle',
     'squirtle'
-  ],
-
-  tina: [
-    'dragonair',
-    'magcargo',
-    'mienshao',
-    'murkrow',
-    'oranguru',
-    'spheal',
-    'toedscruel',
-    'toxel',
-    'vanillite',
-    'vullaby',
-    'wooper'
   ],
 
   moe: [
@@ -73,6 +59,25 @@ const CHOICE_GROUPS = {
     'whimsicott',
     'wooloo'
   ],
+
+  mystery: [
+    'ampharos',
+    'archaludon',
+    'cryogonal',
+    'dratini',
+    'emolga',
+    'flaaffy',
+    'furret',
+    'mareep',
+    'milcery',
+    'minior',
+    'noibat',
+    'porygon',
+    'porygon2',
+    'porygon-Z',
+    'togetic',
+    'tynamo'
+    ],
 
   aeries: [
     'raichu',
@@ -172,6 +177,20 @@ const CHOICE_GROUPS = {
     'staravia',
     'whirlipede'
   ],
+
+  chaching : [
+    'absol',
+    'audino',
+    'carbink',
+    'ditto',
+    'eiscue',
+    'espurr',
+    'komala',
+    'miltank',
+    'mimikyu',
+    'pachirisu',
+    'ralts'
+    ],
 
   
   starters: [
@@ -686,7 +705,7 @@ const CHOICE_GROUPS = {
     'pachirisu',
     'partner pikachu',
     'pichu',
-    'pikachu',
+    'normal pikachu',
     'plusle',
     'raichu',
     'togedemaru'
@@ -1031,6 +1050,6 @@ const CHOICE_GROUPS = {
     'vikavolt',
     'voltorb'
   ]
-
 };
+
 module.exports = { CHOICE_GROUPS };
