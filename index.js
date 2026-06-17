@@ -4274,6 +4274,57 @@ function buildReservePingsEmbed(summary) {
     .setColor(0xFAD7A0);
 }
 
+function buildReservePingsCopyText(summary) {
+  const pokemonOwnerMap = new Map();
+  const pokemonByUser = new Map();
+
+  const sortedSlots = [...(summary.slotSnapshot || [])].sort((a, b) => {
+    const timeA = a?.claimed_at ? new Date(a.claimed_at).getTime() : Number.MAX_SAFE_INTEGER;
+    const timeB = b?.claimed_at ? new Date(b.claimed_at).getTime() : Number.MAX_SAFE_INTEGER;
+
+    if (timeA !== timeB) return timeA - timeB;
+    return String(a.slot_key).localeCompare(String(b.slot_key));
+  });
+
+  for (const slot of sortedSlots) {
+    if (!slot.user_id) continue;
+
+    const ownedPokemon = getFinishedSlotOwnedPokemon(slot);
+
+    for (const pokemonName of ownedPokemon) {
+      if (pokemonOwnerMap.has(pokemonName)) continue;
+      pokemonOwnerMap.set(pokemonName, slot.user_id);
+    }
+  }
+
+  for (const [pokemonName, userId] of pokemonOwnerMap.entries()) {
+    if (!pokemonByUser.has(userId)) {
+      pokemonByUser.set(userId, new Set());
+    }
+
+    const reserveName = formatReserveOutputName(pokemonName);
+
+    const displayName = REGIONAL_FORM_BASE_POKEMON.has(pokemonName)
+      ? `normal ${pokemonName}`
+      : reserveName;
+
+    pokemonByUser
+      .get(userId)
+      .add(prettyPokemonName(displayName));
+  }
+
+  const lines = [...pokemonByUser.entries()]
+    .map(([userId, pokemonSet]) => {
+      const pokemonList = [...pokemonSet]
+        .sort((a, b) => a.localeCompare(b))
+        .join(', ');
+
+      return `<@${userId}> - ${pokemonList}`;
+    });
+
+  return '```' + lines.join('\n') + '```';
+}
+
 function mentionRole(roleId) {
   return roleId ? `<@&${roleId}>` : '';
 }
@@ -7555,8 +7606,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
-        return interaction.reply({
-          embeds: [buildReservePingsEmbed(summary)],
+        const embed = buildReservePingsEmbed(summary);
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('reservepings_copy')
+            .setLabel('Copy List')
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+        await interaction.reply({
+          embeds: [embed],
+          components: [row],
         });
       }
 
@@ -8419,6 +8480,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
           content: 'Use this in a server.',
           flags: EPHEMERAL,
         });
+      }
+
+      if (interaction.isButton()) {
+        if (interaction.customId === 'reservepings_copy') {
+          const summary = getFinishedHistory(guild.id);
+
+          if (!summary || !Array.isArray(summary.slotSnapshot)) {
+            return interaction.reply({
+              content: 'No finished round data stored yet.',
+              flags: EPHEMERAL,
+            });
+          }
+
+          return interaction.reply({
+            content: buildReservePingsCopyText(summary),
+            flags: EPHEMERAL,
+          });
+        }
       }
 
       if (action === 'endqueue_confirm') {
