@@ -234,7 +234,6 @@ const FIXED_REMOVE_TAIL = [
   'Regional',
   'Gmax',
   'Paradox',
-  'Pokopia ditto',
 ];
 
 const ALL_FORM_POKEMON = new Set([
@@ -515,6 +514,22 @@ try {
 }
 
 db.prepare(`
+CREATE TABLE IF NOT EXISTS org_timers (
+  guild_id TEXT PRIMARY KEY,
+  last_org_at TEXT NOT NULL
+)
+`).run();
+
+db.prepare(`
+CREATE TABLE IF NOT EXISTS buy_channels (
+  guild_id TEXT NOT NULL,
+  slot_key TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  PRIMARY KEY (guild_id, slot_key)
+)
+`).run();
+
+db.prepare(`
   CREATE TABLE IF NOT EXISTS announcement_config (
     guild_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -537,6 +552,61 @@ db.prepare(`
   )
 `).run();
 
+db.prepare(`
+CREATE TABLE IF NOT EXISTS timed_buyer_roles (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  role_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  PRIMARY KEY (guild_id, user_id, role_id)
+)
+`).run();
+
+async function giveTimedRole(guild, userId, roleId) {
+  if (!roleId) return;
+
+  const mainId = await getProfileIdForUser(guild.id, userId);
+
+  const member = await guild.members.fetch(mainId).catch(() => null);
+  if (!member) return;
+
+  if (!member.roles.cache.has(roleId)) {
+    await member.roles.add(roleId).catch(console.error);
+  }
+
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  db.prepare(`
+    INSERT INTO timed_buyer_roles (guild_id, user_id, role_id, expires_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(guild_id, user_id, role_id)
+    DO UPDATE SET expires_at = excluded.expires_at
+  `).run(guild.id, mainId, roleId, expiresAt);
+}
+
+async function checkExpiredBuyerRoles(client) {
+  const rows = db.prepare(`
+    SELECT * FROM timed_buyer_roles
+    WHERE expires_at <= ?
+  `).all(new Date().toISOString());
+
+  for (const row of rows) {
+    const guild = await client.guilds.fetch(row.guild_id).catch(() => null);
+    const member = guild
+      ? await guild.members.fetch(row.user_id).catch(() => null)
+      : null;
+
+    if (member?.roles.cache.has(row.role_id)) {
+      await member.roles.remove(row.role_id).catch(console.error);
+    }
+
+    db.prepare(`
+      DELETE FROM timed_buyer_roles
+      WHERE guild_id = ? AND user_id = ? AND role_id = ?
+    `).run(row.guild_id, row.user_id, row.role_id);
+  }
+}
+
 function clampAnnouncementTemplateNumber(number) {
   const value = Number(number);
   if (!Number.isInteger(value)) return 1;
@@ -551,6 +621,35 @@ function getSponsorConfig(guildId) {
     FROM sponsor_config
     WHERE guild_id = ?
   `).get(guildId);
+}
+
+function buildBuyChannelPingLines(guildId) {
+  const slots = getSlots(guildId);
+
+  const rows = db.prepare(`
+    SELECT slot_key, channel_id
+    FROM buy_channels
+    WHERE guild_id = ?
+  `).all(guildId);
+
+  const channelBySlot = new Map(
+    rows.map((row) => [row.slot_key, row.channel_id])
+  );
+
+  const lines = [];
+
+  for (const slot of slots) {
+    if (!slot.user_id) continue;
+
+    const channelId = channelBySlot.get(slot.slot_key);
+    if (!channelId) continue;
+
+    lines.push(
+      `<@${slot.user_id}> ${prettySlotLabel(slot.slot_key)} buy in <#${channelId}>`
+    );
+  }
+
+  return lines;
 }
 
 async function safeInteractionReply(interaction, payload) {
@@ -628,6 +727,27 @@ async function createPendingAltLink(guildId, altUserId, mainUserId) {
   }, { merge: true });
 
   return profileId;
+}
+
+function clearCooldownsForGuild(guildId) {
+  db.prepare(`DELETE FROM user_claim_history WHERE guild_id = ?`).run(guildId);
+  db.prepare(`DELETE FROM previous_round_claim_history WHERE guild_id = ?`).run(guildId);
+  db.prepare(`DELETE FROM event_claim_history WHERE guild_id = ?`).run(guildId);
+  db.prepare(`DELETE FROM temporary_pokemon_cooldowns WHERE guild_id = ?`).run(guildId);
+}
+
+async function checkAutoClearCd() {
+  const rows = db.prepare(`SELECT guild_id, last_org_at FROM org_timers`).all();
+  const now = Date.now();
+
+  for (const row of rows) {
+    const last = new Date(row.last_org_at).getTime();
+    if (now - last >= 6 * 60 * 60 * 1000) {
+      clearCooldownsForGuild(row.guild_id);
+      db.prepare(`DELETE FROM org_timers WHERE guild_id = ?`).run(row.guild_id);
+      console.log(`[auto-clearcd] Cleared cooldowns for ${row.guild_id}`);
+    }
+  }
 }
 
 async function approveAltLink(guildId, altUserId, staffUserId) {
@@ -2807,6 +2927,29 @@ client.on('messageCreate', async (message) => {
     if (!message.guild) return;
     if (!TRAP_CHANNEL_ID || message.channel.id !== TRAP_CHANNEL_ID) return;
     if (message.author.bot) return;
+    if (message.channel.id === process.env.TRAP_CHANNEL_ID?.trim()) {
+      const staffRoleId = process.env.STAFF_ROLE_ID?.trim();
+      if (staffRoleId && message.member.roles.cache.has(staffRoleId)) return;
+
+      const quarantineRoleId = process.env.QUARANTINE_ROLE_ID?.trim();
+      const bypassRoleIds = [
+        process.env.QUARANTINE_BYPASS_ROLE_1_ID?.trim(),
+        process.env.QUARANTINE_BYPASS_ROLE_2_ID?.trim(),
+      ].filter(Boolean);
+
+      if (quarantineRoleId && !message.member.roles.cache.has(quarantineRoleId)) {
+        await message.member.roles.add(quarantineRoleId).catch(console.error);
+      }
+
+      for (const roleId of bypassRoleIds) {
+        if (message.member.roles.cache.has(roleId)) {
+          await message.member.roles.remove(roleId).catch(console.error);
+        }
+      }
+
+      await message.delete().catch(() => null);
+      return;
+    }
 
     const member = await message.guild.members.fetch(message.author.id).catch(() => null);
     if (!member) return;
@@ -4274,57 +4417,6 @@ function buildReservePingsEmbed(summary) {
     .setColor(0xFAD7A0);
 }
 
-function buildReservePingsCopyText(summary) {
-  const pokemonOwnerMap = new Map();
-  const pokemonByUser = new Map();
-
-  const sortedSlots = [...(summary.slotSnapshot || [])].sort((a, b) => {
-    const timeA = a?.claimed_at ? new Date(a.claimed_at).getTime() : Number.MAX_SAFE_INTEGER;
-    const timeB = b?.claimed_at ? new Date(b.claimed_at).getTime() : Number.MAX_SAFE_INTEGER;
-
-    if (timeA !== timeB) return timeA - timeB;
-    return String(a.slot_key).localeCompare(String(b.slot_key));
-  });
-
-  for (const slot of sortedSlots) {
-    if (!slot.user_id) continue;
-
-    const ownedPokemon = getFinishedSlotOwnedPokemon(slot);
-
-    for (const pokemonName of ownedPokemon) {
-      if (pokemonOwnerMap.has(pokemonName)) continue;
-      pokemonOwnerMap.set(pokemonName, slot.user_id);
-    }
-  }
-
-  for (const [pokemonName, userId] of pokemonOwnerMap.entries()) {
-    if (!pokemonByUser.has(userId)) {
-      pokemonByUser.set(userId, new Set());
-    }
-
-    const reserveName = formatReserveOutputName(pokemonName);
-
-    const displayName = REGIONAL_FORM_BASE_POKEMON.has(pokemonName)
-      ? `normal ${pokemonName}`
-      : reserveName;
-
-    pokemonByUser
-      .get(userId)
-      .add(prettyPokemonName(displayName));
-  }
-
-  const lines = [...pokemonByUser.entries()]
-    .map(([userId, pokemonSet]) => {
-      const pokemonList = [...pokemonSet]
-        .sort((a, b) => a.localeCompare(b))
-        .join(', ');
-
-      return `<@${userId}> - ${pokemonList}`;
-    });
-
-  return '```' + lines.join('\n') + '```';
-}
-
 function mentionRole(roleId) {
   return roleId ? `<@&${roleId}>` : '';
 }
@@ -4635,19 +4727,13 @@ async function finishQueueAndAnnounce(guild, finishedBy) {
 
   const mentions = summary.holderIds.map((id) => `<@${id}>`).join(' ');
   const finishLines = buildFinishSummaryLines(guild.id);
+  await sendBuyerNotifications(guild.id, guild);
 
   const sentMessage = await channel.send({
     content:
       `**Please buy your channels**, org finished by <@${finishedBy}>.\n${mentions}\n\n` +
       finishLines.join('\n'),
   });
-
-  await sendReadinessPost(
-    channel,
-    guild.id,
-    summary.holderIds,
-    '\n**React when done buying:**'
-  );
 
   rebuildCooldownHistoryFromCurrentFinishedHolders(guild.id);
 
@@ -4667,6 +4753,34 @@ async function finishQueueAndAnnounce(guild, finishedBy) {
   await sendFinishedQueueArchive(guild, finishedBy, summary);
 
   return sentMessage;
+}
+
+async function sendBuyerNotifications(guildId, guild) {
+  const slots = getSlots(guildId);
+
+  const rows = db.prepare(`
+    SELECT slot_key, channel_id
+    FROM buy_channels
+    WHERE guild_id = ?
+  `).all(guildId);
+
+  const channelMap = new Map(
+    rows.map((r) => [r.slot_key, r.channel_id])
+  );
+
+  for (const slot of slots) {
+    if (!slot.user_id) continue;
+
+    const channelId = channelMap.get(slot.slot_key);
+    if (!channelId) continue;
+
+    const channel = await guild.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isTextBased()) continue;
+
+    await channel.send({
+      content: `<@${slot.user_id}> - **${prettySlotLabel(slot.slot_key)}** Start buying here <:9_:1496851117194219600>`
+    }).catch(console.error);
+  }
 }
 
 async function cancelQueueAndAnnounce(guild, cancelledBy) {
@@ -4811,6 +4925,17 @@ const commands = [
         .setName('main')
         .setDescription('Main account to link this account under.')
         .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('setbuychn')
+    .setDescription('Set this channel as the buy channel for a slot')
+    .addStringOption((option) =>
+      addAllSlotChoices(
+        option
+          .setName('slot')
+          .setDescription('Slot to set buy channel for')
+      )
     ),
 
   new SlashCommandBuilder()
@@ -5306,6 +5431,10 @@ const commands = [
 
 client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user.tag}`);
+  setInterval(checkAutoClearCd, 5 * 60 * 1000);
+  checkAutoClearCd();
+  setInterval(() => checkExpiredBuyerRoles(client), 10 * 60 * 1000);
+  checkExpiredBuyerRoles(client);
 });
 
 client.once(Events.ClientReady, (readyClient) => {
@@ -5672,6 +5801,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
             `Added:\n${added.map(prettyPokemonName).join(', ') || 'None'}\n\n` +
             `Failed:\n${failed.map(prettyPokemonName).join(', ') || 'None'}`,
 
+        });
+      }
+
+      if (interaction.commandName === 'setbuychn') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use this command.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const slotKey = interaction.options.getString('slot', true);
+
+        db.prepare(`
+          INSERT INTO buy_channels (guild_id, slot_key, channel_id)
+          VALUES (?, ?, ?)
+          ON CONFLICT(guild_id, slot_key)
+          DO UPDATE SET channel_id = excluded.channel_id
+        `).run(interaction.guild.id, slotKey, interaction.channel.id);
+
+        return interaction.reply({
+          content: `Buy channel for **${prettySlotLabel(slotKey)}** set to <#${interaction.channel.id}>.`,
+          flags: EPHEMERAL,
         });
       }
 
@@ -7481,6 +7633,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
         rolloverClaimHistoryToPreviousRound(guild.id);
 
         const profileAwardResult = await awardBuyerProfilesForFinishedRound(guild.id);
+        const currentSlots = getSlots(guild.id);
+
+        for (const slot of currentSlots) {
+          if (!slot.user_id) continue;
+
+          await giveTimedRole(guild, slot.user_id, process.env.EEVEE_BUYERS_ROLE_ID?.trim());
+
+          if (slot.slot_key === 'choice1' || slot.slot_key === 'choice2') {
+            await giveTimedRole(guild, slot.user_id, process.env.EEVEE_CHOICE_LOVER_ROLE_ID?.trim());
+          }
+        }
 
         if (profileAwardResult.reason === 'already_awarded') {
           console.log('[profile] Awards already given for this round.');
@@ -7495,6 +7658,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
 
         addFinishedPokemonCooldowns(guild.id);
+        db.prepare(`
+          INSERT INTO org_timers (guild_id, last_org_at)
+          VALUES (?, ?)
+          ON CONFLICT(guild_id) DO UPDATE SET last_org_at = excluded.last_org_at
+        `).run(guild.id, new Date().toISOString());
 
         return interaction.editReply({
           content: 'Round finished and readiness checker posted.',
@@ -7606,18 +7774,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
-        const embed = buildReservePingsEmbed(summary);
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId('reservepings_copy')
-            .setLabel('Copy List')
-            .setStyle(ButtonStyle.Secondary)
-        );
-
-        await interaction.reply({
-          embeds: [embed],
-          components: [row],
+        return interaction.reply({
+          embeds: [buildReservePingsEmbed(summary)],
         });
       }
 
@@ -7647,14 +7805,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!isMajorFfaSlot(slotKey)) {
           return interaction.reply({
             content: 'Major FFA can only be set for Rare, Regional, Gmax, or Eevees.',
-            
+            flags: EPHEMERAL,
           });
         }
 
         if (!slot || slot.user_id !== user.id) {
           return interaction.reply({
             content: 'You can only set FFA for your own claimed major slot.',
-            
+            flags: EPHEMERAL,
           });
         }
 
@@ -7674,7 +7832,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: `FFA set for **${slot.slot_label}**: ${uniquePokemon.map(prettyPokemonName).join(', ') || 'None'}`,
-          
+          flags: EPHEMERAL,
         });
       }
 
@@ -8480,24 +8638,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           content: 'Use this in a server.',
           flags: EPHEMERAL,
         });
-      }
-
-      if (interaction.isButton()) {
-        if (interaction.customId === 'reservepings_copy') {
-          const summary = getFinishedHistory(interaction.guild.id);
-
-          if (!summary || !Array.isArray(summary.slotSnapshot)) {
-            return interaction.reply({
-              content: 'No finished round data stored yet.',
-              flags: EPHEMERAL,
-            });
-          }
-
-          return interaction.reply({
-            content: buildReservePingsCopyText(summary),
-            flags: EPHEMERAL,
-          });
-        }
       }
 
       if (action === 'endqueue_confirm') {
