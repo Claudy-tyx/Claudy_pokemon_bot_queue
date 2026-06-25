@@ -2931,6 +2931,9 @@ client.on('messageCreate', async (message) => {
       const staffRoleId = process.env.STAFF_ROLE_ID?.trim();
       if (staffRoleId && message.member.roles.cache.has(staffRoleId)) return;
 
+      const messageUrl = message.url;
+      const rawContent = getMessagePreview(message);
+
       const quarantineRoleId = process.env.QUARANTINE_ROLE_ID?.trim();
       const bypassRoleIds = [
         process.env.QUARANTINE_BYPASS_ROLE_1_ID?.trim(),
@@ -2947,7 +2950,36 @@ client.on('messageCreate', async (message) => {
         }
       }
 
-      await message.delete().catch(() => null);
+      await message.delete().catch((err) => {
+        console.error('[trap] Failed to delete trigger message:', err);
+      });
+
+      const deletedCount = await purgeRecentMessages(message.guild, message.author.id);
+
+      const logChannel = STAFF_LOG_CHANNEL_ID
+        ? await message.guild.channels.fetch(STAFF_LOG_CHANNEL_ID).catch(() => null)
+        : null;
+
+      if (logChannel && typeof logChannel.send === 'function') {
+        const embed = new EmbedBuilder()
+          .setTitle('Quarantine Triggered')
+          .setColor(0xED4245)
+          .addFields(
+            { name: 'User', value: `<@${message.author.id}> (${message.author.id})`, inline: false },
+            { name: 'Trigger Channel', value: `<#${message.channel.id}>`, inline: true },
+            { name: 'Deleted Recent Messages', value: String(deletedCount), inline: true },
+            { name: 'Content', value: rawContent.slice(0, 1024), inline: false },
+          )
+          .setTimestamp();
+
+        const modRoleId = process.env.MOD_ROLE_ID?.trim();
+
+        await logChannel.send({
+          content: modRoleId ? `<@&${modRoleId}>` : undefined,
+          embeds: [embed],
+        }).catch(console.error);
+      }
+
       return;
     }
 
