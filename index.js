@@ -5145,6 +5145,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName('addallinc')
     .setDescription('Add all text channels under this category to incense tracking'),
+  
+  new SlashCommandBuilder()
+    .setName('removeallinc')
+    .setDescription('Remove all text channels under this category from incense tracking'),
 
   new SlashCommandBuilder()
     .setName('report')
@@ -6681,18 +6685,54 @@ client.on(Events.InteractionCreate, async (interaction) => {
             ch.type === ChannelType.GuildText
         );
 
-        let added = 0;
+        let modified = 0;
 
         for (const channel of channels.values()) {
           if (!isTrackedIncenseChannel(guild.id, channel.id)) {
             addIncenseChannel(guild.id, channel.id);
-            added += 1;
+            modified += 1;
           }
         }
 
         return interaction.reply({
-          content: `Added ${added} channel(s) from this category to incense tracking. <:9_:1496851117194219600>`,
+          content: `Added ${modified} channel(s) from this category to incense tracking. <:9_:1496851117194219600>`,
+        });
+      }
 
+      if (interaction.commandName === 'removeallinc') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use this command.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const parentId = interaction.channel.parentId;
+        if (!parentId) {
+          return interaction.reply({
+            content: 'This channel is not inside a category.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const channels = interaction.guild.channels.cache.filter(
+          (ch) =>
+            ch.parentId === parentId &&
+            ch.isTextBased() &&
+            ch.type === ChannelType.GuildText
+        );
+
+        let modified = 0;
+
+        for (const channel of channels.values()) {
+          if (isTrackedIncenseChannel(guild.id, channel.id)) {
+            removeIncenseChannel(guild.id, channel.id);
+            modified += 1;
+          }
+        }
+
+        return interaction.reply({
+          content: `Removed ${modified} channel(s) from this category from incense tracking. <:9_:1496851117194219600>`,
         });
       }
 
