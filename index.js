@@ -6484,7 +6484,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: `Buy channel for **${prettySlotLabel(slotKey)}** set to <#${interaction.channel.id}>.`,
-          flags: EPHEMERAL,
+          
         });
       }
 
@@ -8690,7 +8690,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 slot.choice_group_name
               )}**: ` +
               invalidPokemon.map(prettyPokemonName).join(', '),
-            flags: EPHEMERAL,
+            
           });
         }
 
@@ -8740,7 +8740,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                   `Current FFA: ${
                     updatedFfa.map(prettyPokemonName).join(', ') || 'None'
                   }`,
-            flags: EPHEMERAL,
+            
           });
         }
 
@@ -8760,7 +8760,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 `Current FFA: ${
                   updatedFfa.map(prettyPokemonName).join(', ') || 'None'
                 }`,
-          flags: EPHEMERAL,
+          
         });
       }
 
