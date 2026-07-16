@@ -28,18 +28,6 @@ const CHOICE_GROUPS = {
     'tynamo'
   ],
 
-  nikkey: [
-    'chimecho',
-    'chingling',
-    'decidueye',
-    'dhelmise',
-    'impidimp',
-    'klink',
-    'maractus',
-    'mareanie',
-    'wimpod'
-  ],
-
   claudy: [
     'absol',
     'arcanine',
@@ -59,25 +47,6 @@ const CHOICE_GROUPS = {
     'whimsicott',
     'wooloo'
   ],
-
-  mystery: [
-    'ampharos',
-    'archaludon',
-    'cryogonal',
-    'dratini',
-    'emolga',
-    'flaaffy',
-    'furret',
-    'mareep',
-    'milcery',
-    'minior',
-    'noibat',
-    'porygon',
-    'porygon2',
-    'porygon-Z',
-    'togetic',
-    'tynamo'
-    ],
 
   aeries: [
     'raichu',

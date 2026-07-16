@@ -58,6 +58,7 @@ const {
 const Database = require('better-sqlite3');
 const { VALID_POKEMON } = require('./validPokemon');
 const { CHOICE_GROUPS } = require('./choiceGroups');
+const { CHOICE_GROUP_RARES } = require('./choiceGroupRares');
 const { RARE_POKEMON } = require('./rarepokemon');
 const { getStealPriceInfo, formatStealPrice } = require('./stealPrices');
 const { POKEMON_ALIAS_GROUPS } = require('./pokemonAliases');
@@ -544,6 +545,17 @@ db.prepare(`
 `).run();
 
 db.prepare(`
+  CREATE TABLE IF NOT EXISTS staff_activity_events (
+    guild_id TEXT NOT NULL,
+    round_number INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+    activity_type TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (guild_id, round_number, activity_type)
+  )
+`).run();
+
+db.prepare(`
   CREATE TABLE IF NOT EXISTS announcement_active_template (
     guild_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -737,6 +749,65 @@ async function createPendingAltLink(guildId, altUserId, mainUserId) {
   }, { merge: true });
 
   return profileId;
+}
+
+const STAFF_ACTIVITY_PAGE_SIZE = 10;
+
+function recordStaffActivity(
+  guildId,
+  roundNumber,
+  userId,
+  activityType,
+  createdAt = new Date().toISOString()
+) {
+  if (!guildId || !userId) return false;
+  if (!Number.isInteger(Number(roundNumber))) return false;
+  if (!['org', 'resping'].includes(activityType)) return false;
+
+  const result = db.prepare(`
+    INSERT OR IGNORE INTO staff_activity_events (
+      guild_id,
+      round_number,
+      user_id,
+      activity_type,
+      created_at
+    )
+    VALUES (?, ?, ?, ?, ?)
+  `).run(
+    guildId,
+    Number(roundNumber),
+    userId,
+    activityType,
+    createdAt
+  );
+
+  return result.changes > 0;
+}
+
+function recordFinishedRoundStaffActivity(guildId, roundNumber, finishedBy) {
+  const now = new Date().toISOString();
+
+  // The person who successfully ran /finish receives the org count.
+  recordStaffActivity(
+    guildId,
+    roundNumber,
+    finishedBy,
+    'org',
+    now
+  );
+
+  // The current holder of the reserver slot receives the RP count.
+  const reserverSlot = getSlot(guildId, 'reserver');
+
+  if (reserverSlot?.user_id) {
+    recordStaffActivity(
+      guildId,
+      roundNumber,
+      reserverSlot.user_id,
+      'resping',
+      now
+    );
+  }
 }
 
 function clearCooldownsForGuild(guildId) {
@@ -4172,6 +4243,457 @@ function buildQueueEmbedFromSlots(slots, options = {}) {
   return embed;
 }
 
+function getStaffTotalActivityRows(guildId) {
+  return db.prepare(`
+    SELECT
+      user_id,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'org' THEN 1
+          ELSE 0
+        END
+      ) AS total_orgs,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'resping' THEN 1
+          ELSE 0
+        END
+      ) AS total_rp
+
+    FROM staff_activity_events
+    WHERE guild_id = ?
+
+    GROUP BY user_id
+
+    ORDER BY
+      total_orgs DESC,
+      total_rp DESC,
+      user_id ASC
+  `).all(guildId);
+}
+
+function getStaffMonthlyActivityRows(guildId) {
+  return db.prepare(`
+    SELECT
+      user_id,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'org'
+            AND strftime('%Y-%m', created_at, '+8 hours')
+              = strftime('%Y-%m', 'now', '+8 hours')
+          THEN 1
+          ELSE 0
+        END
+      ) AS current_orgs,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'resping'
+            AND strftime('%Y-%m', created_at, '+8 hours')
+              = strftime('%Y-%m', 'now', '+8 hours')
+          THEN 1
+          ELSE 0
+        END
+      ) AS current_rp,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'org'
+            AND strftime('%Y-%m', created_at, '+8 hours')
+              = strftime(
+                  '%Y-%m',
+                  datetime('now', '+8 hours', 'start of month', '-1 month')
+                )
+          THEN 1
+          ELSE 0
+        END
+      ) AS previous_orgs,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'resping'
+            AND strftime('%Y-%m', created_at, '+8 hours')
+              = strftime(
+                  '%Y-%m',
+                  datetime('now', '+8 hours', 'start of month', '-1 month')
+                )
+          THEN 1
+          ELSE 0
+        END
+      ) AS previous_rp
+
+    FROM staff_activity_events
+    WHERE guild_id = ?
+
+    GROUP BY user_id
+
+    ORDER BY
+      current_orgs DESC,
+      current_rp DESC,
+      previous_orgs DESC,
+      previous_rp DESC,
+      user_id ASC
+  `).all(guildId);
+}
+
+function getStaffLatestActivityRows(guildId) {
+  const rows = db.prepare(`
+    SELECT
+      user_id,
+
+      MAX(
+        CASE
+          WHEN activity_type = 'org'
+          THEN created_at
+          ELSE NULL
+        END
+      ) AS last_org_at,
+
+      MAX(
+        CASE
+          WHEN activity_type = 'resping'
+          THEN created_at
+          ELSE NULL
+        END
+      ) AS last_rp_at
+
+    FROM staff_activity_events
+    WHERE guild_id = ?
+
+    GROUP BY user_id
+  `).all(guildId);
+
+  /*
+    Inactivity order:
+
+    1. Never orged
+    2. Oldest last org
+    3. Oldest last RP
+    4. Most recent staff at the bottom
+  */
+  rows.sort((a, b) => {
+    if (!a.last_org_at && b.last_org_at) return -1;
+    if (a.last_org_at && !b.last_org_at) return 1;
+
+    if (a.last_org_at && b.last_org_at) {
+      const orgDifference =
+        new Date(a.last_org_at).getTime() -
+        new Date(b.last_org_at).getTime();
+
+      if (orgDifference !== 0) return orgDifference;
+    }
+
+    if (!a.last_rp_at && b.last_rp_at) return -1;
+    if (a.last_rp_at && !b.last_rp_at) return 1;
+
+    if (a.last_rp_at && b.last_rp_at) {
+      const rpDifference =
+        new Date(a.last_rp_at).getTime() -
+        new Date(b.last_rp_at).getTime();
+
+      if (rpDifference !== 0) return rpDifference;
+    }
+
+    return String(a.user_id).localeCompare(String(b.user_id));
+  });
+
+  return rows;
+}
+
+function truncateTableText(value, width) {
+  const text = String(value ?? '');
+
+  if (text.length <= width) {
+    return text.padEnd(width, ' ');
+  }
+
+  if (width <= 1) {
+    return text.slice(0, width);
+  }
+
+  return `${text.slice(0, width - 1)}…`;
+}
+
+function formatTableNumber(value, width) {
+  const number = Number(value ?? 0);
+  return String(number).padStart(width, ' ');
+}
+
+function formatRelativeActivityDate(isoDate) {
+  if (!isoDate) return 'Never';
+
+  const time = new Date(isoDate).getTime();
+  if (Number.isNaN(time)) return 'Unknown';
+
+  const differenceMs = Math.max(0, Date.now() - time);
+
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (differenceMs < minute) return 'Now';
+
+  if (differenceMs < hour) {
+    return `${Math.floor(differenceMs / minute)}m ago`;
+  }
+
+  if (differenceMs < day) {
+    return `${Math.floor(differenceMs / hour)}h ago`;
+  }
+
+  const days = Math.floor(differenceMs / day);
+
+  if (days === 1) return 'Yesterday';
+  if (days < 30) return `${days}d ago`;
+
+  const months = Math.floor(days / 30);
+
+  if (months < 12) {
+    return `${months}mo ago`;
+  }
+
+  const years = Math.floor(days / 365);
+  return `${years}y ago`;
+}
+
+async function getStaffActivityDisplayName(guild, userId) {
+  const member = await guild.members.fetch(userId).catch(() => null);
+
+  return (
+    member?.displayName ||
+    member?.user?.globalName ||
+    member?.user?.username ||
+    userId
+  );
+}
+
+async function addDisplayNamesToActivityRows(guild, rows) {
+  return Promise.all(
+    rows.map(async (row) => ({
+      ...row,
+      display_name: await getStaffActivityDisplayName(
+        guild,
+        row.user_id
+      ),
+    }))
+  );
+}
+
+function getStaffActivityRows(guildId, view) {
+  if (view === 'counts') {
+    return getStaffTotalActivityRows(guildId);
+  }
+
+  if (view === 'month') {
+    return getStaffMonthlyActivityRows(guildId);
+  }
+
+  if (view === 'latest') {
+    return getStaffLatestActivityRows(guildId);
+  }
+
+  return [];
+}
+
+function getStaffActivityTitle(view) {
+  if (view === 'counts') {
+    return 'Staff Activity — Total Counts';
+  }
+
+  if (view === 'month') {
+    return 'Staff Activity — Monthly';
+  }
+
+  if (view === 'latest') {
+    return 'Staff Activity — Inactivity';
+  }
+
+  return 'Staff Activity';
+}
+
+function buildStaffActivityTable(view, rows) {
+  if (view === 'counts') {
+    const header =
+      `${truncateTableText('User', 17)} ` +
+      `${truncateTableText('Total Orgs', 10)} ` +
+      `${truncateTableText('Total RP', 8)}`;
+
+    const separator =
+      `${'-'.repeat(17)} ` +
+      `${'-'.repeat(10)} ` +
+      `${'-'.repeat(8)}`;
+
+    const body = rows.map((row) =>
+      `${truncateTableText(row.display_name, 17)} ` +
+      `${formatTableNumber(row.total_orgs, 10)} ` +
+      `${formatTableNumber(row.total_rp, 8)}`
+    );
+
+    return [header, separator, ...body].join('\n');
+  }
+
+  if (view === 'month') {
+    const header =
+      `${truncateTableText('User', 14)} ` +
+      `${truncateTableText('Org Now', 7)} ` +
+      `${truncateTableText('RP Now', 6)} ` +
+      `${truncateTableText('Org Prev', 8)} ` +
+      `${truncateTableText('RP Prev', 7)}`;
+
+    const separator =
+      `${'-'.repeat(14)} ` +
+      `${'-'.repeat(7)} ` +
+      `${'-'.repeat(6)} ` +
+      `${'-'.repeat(8)} ` +
+      `${'-'.repeat(7)}`;
+
+    const body = rows.map((row) =>
+      `${truncateTableText(row.display_name, 14)} ` +
+      `${formatTableNumber(row.current_orgs, 7)} ` +
+      `${formatTableNumber(row.current_rp, 6)} ` +
+      `${formatTableNumber(row.previous_orgs, 8)} ` +
+      `${formatTableNumber(row.previous_rp, 7)}`
+    );
+
+    return [header, separator, ...body].join('\n');
+  }
+
+  if (view === 'latest') {
+    const header =
+      `${truncateTableText('User', 17)} ` +
+      `${truncateTableText('Last Org', 11)} ` +
+      `${truncateTableText('Last RP', 11)}`;
+
+    const separator =
+      `${'-'.repeat(17)} ` +
+      `${'-'.repeat(11)} ` +
+      `${'-'.repeat(11)}`;
+
+    const body = rows.map((row) =>
+      `${truncateTableText(row.display_name, 17)} ` +
+      `${truncateTableText(
+        formatRelativeActivityDate(row.last_org_at),
+        11
+      )} ` +
+      `${truncateTableText(
+        formatRelativeActivityDate(row.last_rp_at),
+        11
+      )}`
+    );
+
+    return [header, separator, ...body].join('\n');
+  }
+
+  return 'Unknown activity view.';
+}
+
+function buildStaffActivityButtons(
+  view,
+  page,
+  totalPages,
+  requestedBy
+) {
+  if (totalPages <= 1) return [];
+
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(
+          `staffactivity:${view}:${page - 1}:${requestedBy}`
+        )
+        .setLabel('◀')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page <= 0),
+
+      new ButtonBuilder()
+        .setCustomId(
+          `staffactivity:page:${page}:${requestedBy}`
+        )
+        .setLabel(`Page ${page + 1}/${totalPages}`)
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(true),
+
+      new ButtonBuilder()
+        .setCustomId(
+          `staffactivity:${view}:${page + 1}:${requestedBy}`
+        )
+        .setLabel('▶')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page >= totalPages - 1)
+    ),
+  ];
+}
+
+async function buildStaffActivityPage(
+  guild,
+  view,
+  requestedPage,
+  requestedBy
+) {
+  const rawRows = getStaffActivityRows(guild.id, view);
+  const rows = await addDisplayNamesToActivityRows(guild, rawRows);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(rows.length / STAFF_ACTIVITY_PAGE_SIZE)
+  );
+
+  const safePage = Math.max(
+    0,
+    Math.min(Number(requestedPage) || 0, totalPages - 1)
+  );
+
+  const start = safePage * STAFF_ACTIVITY_PAGE_SIZE;
+  const pageRows = rows.slice(
+    start,
+    start + STAFF_ACTIVITY_PAGE_SIZE
+  );
+
+  let description;
+
+  if (!pageRows.length) {
+    description =
+      'No staff activity has been recorded yet.\n' +
+      'Counts will begin after a queue successfully finishes.';
+  } else {
+    description =
+      `\`\`\`\n${buildStaffActivityTable(view, pageRows)}\n\`\`\``;
+  }
+
+  if (view === 'latest') {
+    description +=
+      '\nOldest or missing org activity is shown first. ' +
+      'Last RP is used as the secondary priority.';
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(getStaffActivityTitle(view))
+    .setDescription(description)
+    .setColor(0x5865F2)
+    .setFooter({
+      text:
+        `Page ${safePage + 1}/${totalPages} • ` +
+        `${rows.length} staff member${rows.length === 1 ? '' : 's'}`,
+    })
+    .setTimestamp();
+
+  return {
+    embeds: [embed],
+    components: buildStaffActivityButtons(
+      view,
+      safePage,
+      totalPages,
+      requestedBy
+    ),
+    allowedMentions: {
+      parse: [],
+    },
+  };
+}
+
 function normalizePokemonBaseName(name) {
   const normalized = normalizePokemonName(name);
 
@@ -4764,6 +5286,12 @@ async function finishQueueAndAnnounce(guild, finishedBy) {
   const channel = await guild.channels.fetch(state.channel_id).catch(() => null);
   if (!channel) return null;
 
+  recordFinishedRoundStaffActivity(
+    guild.id,
+    Number(state.round_number),
+    finishedBy
+  );
+
   const summary = buildSummaryFromCurrentSlots(guild.id);
   saveFinishedHistory(guild.id, summary);
 
@@ -4929,6 +5457,18 @@ const commands = [
     .addStringOption(o =>
       o.setName('pokemon').setDescription('Pokemon name').setRequired(true)
     ),
+
+  new SlashCommandBuilder()
+    .setName('orgcounts')
+    .setDescription('View total staff org and reserve-ping counts.'),
+
+  new SlashCommandBuilder()
+    .setName('orgmonth')
+    .setDescription('View current and previous month staff activity.'),
+
+  new SlashCommandBuilder()
+    .setName('orglatest')
+    .setDescription('View staff inactivity by last org and reserve ping.'),
 
   new SlashCommandBuilder()
     .setName('leaderboard')
@@ -5336,14 +5876,44 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('setffa')
-    .setDescription('Set FFA Pokemon for your claimed choice slot')
-    .addStringOption((option) =>
-      addChoiceSlotChoices(option.setName('slot').setDescription('Your claimed choice slot'))
+    .setDescription('Add or remove FFA Pokémon from your Choice slot')
+
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName('add')
+        .setDescription('Add Pokémon to your Choice FFA list')
+        .addStringOption((option) =>
+          addChoiceSlotChoices(
+            option
+              .setName('slot')
+              .setDescription('Your claimed Choice slot')
+          )
+        )
+        .addStringOption((option) =>
+          option
+            .setName('pokemon')
+            .setDescription('Comma-separated Pokémon to add')
+            .setRequired(true)
+        )
     )
-    .addStringOption((option) =>
-      option.setName('pokemon')
-        .setDescription('Comma-separated Pokemon names to make free')
-        .setRequired(true)
+
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName('remove')
+        .setDescription('Remove Pokémon from your Choice FFA list')
+        .addStringOption((option) =>
+          addChoiceSlotChoices(
+            option
+              .setName('slot')
+              .setDescription('Your claimed Choice slot')
+          )
+        )
+        .addStringOption((option) =>
+          option
+            .setName('pokemon')
+            .setDescription('Comma-separated Pokémon to remove')
+            .setRequired(true)
+        )
     ),
 
   new SlashCommandBuilder()
@@ -5786,6 +6356,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
 
+      
+
       if (interaction.commandName === 'sponsortoggle') {
         if (!hasStaffRole(interaction.member)) {
           return interaction.reply({
@@ -5816,6 +6388,35 @@ client.on(Events.InteractionCreate, async (interaction) => {
             : 'Sponsor routing disabled. Steal reports will route to Pokémon owners.',
 
         });
+      }
+
+      if (
+        interaction.commandName === 'orgcounts' ||
+        interaction.commandName === 'orgmonth' ||
+        interaction.commandName === 'orglatest'
+      ) {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use this command.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const view =
+          interaction.commandName === 'orgcounts'
+            ? 'counts'
+            : interaction.commandName === 'orgmonth'
+              ? 'month'
+              : 'latest';
+
+        const payload = await buildStaffActivityPage(
+          guild,
+          view,
+          0,
+          interaction.user.id
+        );
+
+        return interaction.reply(payload);
       }
 
       if (interaction.commandName === 'addresult') {
@@ -5904,30 +6505,91 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (interaction.commandName === 'lookup') {
-        const raw = interaction.options.getString('pokemon', true);
-        const normalized = normalizePokemonBaseName(raw);
+        const rawPokemon = interaction.options.getString(
+          'pokemon',
+          true
+        );
 
-        const matches = [];
+        const pokemonName =
+          typeof resolvePokemonCanonical === 'function'
+            ? resolvePokemonCanonical(rawPokemon)
+            : normalizePokemonName(rawPokemon);
 
-        for (const [groupName, list] of Object.entries(CHOICE_GROUPS)) {
-          const normalizedList = list.map(normalizePokemonName);
-
-          if (normalizedList.includes(normalized)) {
-            matches.push(prettyGroupName(groupName));
-          }
-        }
-
-        if (!matches.length) {
+        if (!pokemonName) {
           return interaction.reply({
-            content: `${prettyPokemonName(raw)} is not in any choice group.`,
-
+            content: `Could not understand **${rawPokemon}**.`,
+            flags: EPHEMERAL,
           });
         }
 
+        const normalGroups = [];
+
+        for (const [groupName, pokemonList] of Object.entries(
+          CHOICE_GROUPS || {}
+        )) {
+          const normalizedList = Array.isArray(pokemonList)
+            ? pokemonList.map(normalizePokemonName)
+            : [];
+
+          if (normalizedList.includes(pokemonName)) {
+            normalGroups.push(groupName);
+          }
+        }
+
+        const rareGroups = [];
+
+        for (const [groupName, rareList] of Object.entries(
+          CHOICE_GROUP_RARES || {}
+        )) {
+          const normalizedRareList = Array.isArray(rareList)
+            ? rareList.map(normalizePokemonName)
+            : [];
+
+          if (normalizedRareList.includes(pokemonName)) {
+            rareGroups.push(groupName);
+          }
+        }
+
+        const embed = new EmbedBuilder()
+          .setTitle(`Lookup — ${prettyPokemonName(pokemonName)}`)
+          .setColor(0x5865F2);
+
+        if (!normalGroups.length && !rareGroups.length) {
+          embed.setDescription(
+            `No Choice groups were found for ` +
+            `**${prettyPokemonName(pokemonName)}**.`
+          );
+        } else {
+          const fields = [];
+
+          if (normalGroups.length) {
+            fields.push({
+              name: 'Included in Choice Groups',
+              value: normalGroups
+                .map(groupName => `• ${prettyGroupName(groupName)}`)
+                .join('\n'),
+              inline: false,
+            });
+          }
+
+          if (rareGroups.length) {
+            fields.push({
+              name: 'Available as a Choice Rare',
+              value: rareGroups
+                .map(groupName => `• ${prettyGroupName(groupName)}`)
+                .join('\n'),
+              inline: false,
+            });
+          }
+
+          embed.addFields(fields);
+        }
+
         return interaction.reply({
-          content:
-            `**${prettyPokemonName(raw)}** belongs to:\n` +
-            matches.map(g => `• ${g}`).join('\n'),
+          embeds: [embed],
+          allowedMentions: {
+            parse: [],
+          },
         });
       }
 
@@ -7934,6 +8596,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       if (interaction.commandName === 'setffa') {
         const state = getQueueState(guild.id);
+
         if (!state) {
           return interaction.reply({
             content: 'No active queue right now.',
@@ -7941,7 +8604,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
-        // ensure this only works in funky-buyers, unless staff
         if (
           interaction.channel.id !== buyerChannelId &&
           !hasStaffRole(interaction.member)
@@ -7952,72 +8614,153 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
+        const action = interaction.options.getSubcommand(true);
         const slotKey = interaction.options.getString('slot', true);
         const rawList = interaction.options.getString('pokemon', true);
         const slot = getSlot(guild.id, slotKey);
 
         if (!isChoiceSlot(slotKey)) {
           return interaction.reply({
-            content: 'FFA can only be set on choice slots.',
+            content: 'FFA can only be changed for Choice slots. U can run /setmajorffa for major groups if needed.',
             flags: EPHEMERAL,
           });
         }
 
         if (!slot || slot.user_id !== user.id) {
           return interaction.reply({
-            content: 'You can only set FFA for your own claimed choice slot.',
+            content: 'You can only change FFA for your own claimed Choice slot.',
             flags: EPHEMERAL,
           });
         }
 
         if (!slot.choice_group_name) {
           return interaction.reply({
-            content: 'Choose a group first with /choosegroup.',
+            content: 'Choose a group first with `/choosegroup`.',
             flags: EPHEMERAL,
           });
         }
 
         const groupPokemon = getChoiceGroupByName(slot.choice_group_name);
-        const requestedPokemon = rawList
-          .split(',')
-          .map((name) =>
-            normalizePokemonName(name)
-              .replace(/^-+|-+$/g, '') // 🔥 strip leading/trailing hyphens ONLY here
-          )
-          .filter(Boolean);
-        const groupPokemonSet = new Set(groupPokemon);
-        const groupBaseSet = new Set(groupPokemon.map(normalizePokemonBaseName));
+        const groupPokemonSet = new Set(
+          groupPokemon.map(normalizePokemonName)
+        );
+        const groupBaseSet = new Set(
+          groupPokemon.map(normalizePokemonBaseName)
+        );
+
+        const requestedPokemon = [
+          ...new Set(
+            rawList
+              .split(',')
+              .map((name) =>
+                resolvePokemonCanonical(name).replace(/^-+|-+$/g, '')
+              )
+              .filter(Boolean)
+              .map((name) => {
+                const baseName = normalizePokemonBaseName(name);
+
+                if (groupPokemonSet.has(name)) return name;
+                if (groupBaseSet.has(baseName)) return baseName;
+
+                return name;
+              })
+          ),
+        ];
+
+        if (!requestedPokemon.length) {
+          return interaction.reply({
+            content: 'Please provide at least one Pokémon.',
+            flags: EPHEMERAL,
+          });
+        }
 
         const invalidPokemon = requestedPokemon.filter((name) => {
           const baseName = normalizePokemonBaseName(name);
 
-          return !groupPokemonSet.has(name) && !groupBaseSet.has(baseName);
+          return (
+            !groupPokemonSet.has(name) &&
+            !groupBaseSet.has(baseName)
+          );
         });
 
         if (invalidPokemon.length) {
           return interaction.reply({
-            content: `These Pokemon are not in ${prettyGroupName(slot.choice_group_name)}: ${invalidPokemon.map(prettyPokemonName).join(', ')}`,
-
+            content:
+              `These Pokémon are not in **${prettyGroupName(
+                slot.choice_group_name
+              )}**: ` +
+              invalidPokemon.map(prettyPokemonName).join(', '),
+            flags: EPHEMERAL,
           });
         }
 
-        const uniquePokemon = [...new Set(
-          requestedPokemon.map((name) => {
-            const baseName = normalizePokemonBaseName(name);
+        const currentFfa = getSlotFfaPokemon(slot)
+          .map(normalizePokemonName);
 
-            if (groupPokemonSet.has(name)) return name;
-            if (groupBaseSet.has(baseName)) return baseName;
+        let updatedFfa;
 
-            return name;
-          })
-        )];
-        saveSlotFfaPokemon(guild.id, slotKey, uniquePokemon);
+        if (action === 'add') {
+          updatedFfa = [
+            ...new Set([
+              ...currentFfa,
+              ...requestedPokemon,
+            ]),
+          ];
+        } else {
+          const removeSet = new Set(requestedPokemon);
+
+          updatedFfa = currentFfa.filter(
+            (pokemonName) => !removeSet.has(pokemonName)
+          );
+        }
+
+        saveSlotFfaPokemon(
+          guild.id,
+          slotKey,
+          updatedFfa
+        );
 
         reconcilePokemonOwnership(guild.id);
         await refreshQueueMessage(guild);
 
+        if (action === 'add') {
+          const actuallyAdded = requestedPokemon.filter(
+            (pokemonName) => !currentFfa.includes(pokemonName)
+          );
+
+          return interaction.reply({
+            content:
+              actuallyAdded.length > 0
+                ? `Added to **${getSlotDef(slotKey).label} FFA**: ` +
+                  actuallyAdded.map(prettyPokemonName).join(', ') +
+                  `\n\nCurrent FFA: ${
+                    updatedFfa.map(prettyPokemonName).join(', ') || 'None'
+                  }`
+                : `Those Pokémon were already in the FFA list.\n\n` +
+                  `Current FFA: ${
+                    updatedFfa.map(prettyPokemonName).join(', ') || 'None'
+                  }`,
+            flags: EPHEMERAL,
+          });
+        }
+
+        const actuallyRemoved = requestedPokemon.filter(
+          (pokemonName) => currentFfa.includes(pokemonName)
+        );
+
         return interaction.reply({
-          content: `${getSlotDef(slotKey).label} FFA set to: ${uniquePokemon.map(prettyPokemonName).join(', ') || 'None'}`,
+          content:
+            actuallyRemoved.length > 0
+              ? `Removed from **${getSlotDef(slotKey).label} FFA**: ` +
+                actuallyRemoved.map(prettyPokemonName).join(', ') +
+                `\n\nCurrent FFA: ${
+                  updatedFfa.map(prettyPokemonName).join(', ') || 'None'
+                }`
+              : `None of those Pokémon were in the FFA list.\n\n` +
+                `Current FFA: ${
+                  updatedFfa.map(prettyPokemonName).join(', ') || 'None'
+                }`,
+          flags: EPHEMERAL,
         });
       }
 
@@ -8835,6 +9578,43 @@ client.on(Events.InteractionCreate, async (interaction) => {
           content: 'Use this in a server.',
           flags: EPHEMERAL,
         });
+      }
+
+      if (action === 'staffactivity') {
+        const view = parts[1];
+        const requestedPage = Number(parts[2]);
+        const requestedBy = parts[3];
+
+        if (interaction.user.id !== requestedBy) {
+          return interaction.reply({
+            content:
+              'Only the staff member who opened this table can change its page.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use these controls.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        if (!['counts', 'month', 'latest'].includes(view)) {
+          return interaction.reply({
+            content: 'Unknown staff activity view.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const payload = await buildStaffActivityPage(
+          interaction.guild,
+          view,
+          requestedPage,
+          requestedBy
+        );
+
+        return interaction.update(payload);
       }
 
       if (action === 'endqueue_confirm') {
