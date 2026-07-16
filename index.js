@@ -8653,7 +8653,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             rawList
               .split(',')
               .map((name) =>
-                resolvePokemonCanonical(name).replace(/^-+|-+$/g, '')
+                resolvePokemonAlias(name).replace(/^-+|-+$/g, '')
               )
               .filter(Boolean)
               .map((name) => {
