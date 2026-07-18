@@ -6278,7 +6278,7 @@ client.on('messageCreate', async (message) => {
     // =========================
     const reservePrefixMatch = message.content
       .trim()
-      .match(/^e!(?:reserve|r)(?:\s+|$)/i);
+      .match(/^d!(?:reserve|r)(?:\s+|$)/i);
 
     if (reservePrefixMatch) {
       const rawAfterPrefix = message.content
@@ -6302,7 +6302,7 @@ client.on('messageCreate', async (message) => {
 
       if (!['autoadd', 'add', 'remove', 'clear'].includes(action)) {
         await message.reply(
-          'Use `e!r autoadd`, `e!r add`, `e!r remove`, or `e!r clear`.'
+          'Use `d!r autoadd`, `d!r add`, `d!r remove`, or `d!r clear`.'
         );
         return;
       }
@@ -6312,7 +6312,7 @@ client.on('messageCreate', async (message) => {
       // -------------------------
       if (action === 'autoadd') {
         if (!isStaff) {
-          await message.reply('Only staff can use `e!r autoadd`.');
+          await message.reply('Only staff can use `d!r autoadd`.');
           return;
         }
 
@@ -6372,7 +6372,7 @@ client.on('messageCreate', async (message) => {
 
         if (!targetUserId) {
           await message.reply(
-            'Use `e!r add pokemon, pokemon @user`.'
+            'Use `d!r add pokemon, pokemon @user`.'
           );
           return;
         }
@@ -6410,7 +6410,7 @@ client.on('messageCreate', async (message) => {
 
         if (!pokemonNames.length) {
           await message.reply(
-            'Use `e!r remove pokemon, pokemon`.'
+            'Use `d!r remove pokemon, pokemon`.'
           );
           return;
         }
@@ -6439,7 +6439,7 @@ client.on('messageCreate', async (message) => {
         const targetUserId = extractMentionedUserId(argsText);
 
         if (!targetUserId) {
-          await message.reply('Use `e!r clear @user`.');
+          await message.reply('Use `d!r clear @user`.');
           return;
         }
 
