@@ -68,6 +68,7 @@ const {
   GMAX_POKEMON: STEAL_GMAX_POKEMON,
 } = require('./stealPrices');
 
+const P2A_BOT_ID = '1254602968938844171';
 const RESERVE_CHANNEL_ID = '1431692513617514607';
 const RESERVE_COMMAND_DELAY_MS = 1000;
 
@@ -543,6 +544,17 @@ CREATE TABLE IF NOT EXISTS buy_channels (
 `).run();
 
 db.prepare(`
+  CREATE TABLE IF NOT EXISTS reserve_ping_mappings (
+    guild_id TEXT NOT NULL,
+    pokemon_key TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (guild_id, pokemon_key)
+  )
+`).run();
+
+db.prepare(`
   CREATE TABLE IF NOT EXISTS announcement_config (
     guild_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -639,6 +651,138 @@ async function checkExpiredBuyerRoles(client) {
       WHERE guild_id = ? AND user_id = ? AND role_id = ?
     `).run(row.guild_id, row.user_id, row.role_id);
   }
+}
+
+function getReservePokemonKey(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+function formatReserveCommandPokemon(name) {
+  return prettyPokemonName(
+    formatReserveOutputName(
+      String(name || '').trim()
+    )
+  );
+}
+
+function saveReservePingMapping(guildId, userId, pokemonName) {
+  const displayName = formatReserveCommandPokemon(pokemonName);
+  const pokemonKey = getReservePokemonKey(displayName);
+
+  db.prepare(`
+    INSERT INTO reserve_ping_mappings (
+      guild_id,
+      pokemon_key,
+      display_name,
+      user_id,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(guild_id, pokemon_key)
+    DO UPDATE SET
+      display_name = excluded.display_name,
+      user_id = excluded.user_id,
+      updated_at = excluded.updated_at
+  `).run(
+    guildId,
+    pokemonKey,
+    displayName,
+    userId,
+    new Date().toISOString()
+  );
+
+  return displayName;
+}
+
+function deleteReservePingMapping(guildId, pokemonName) {
+  const pokemonKey = getReservePokemonKey(pokemonName);
+
+  return db.prepare(`
+    DELETE FROM reserve_ping_mappings
+    WHERE guild_id = ?
+      AND pokemon_key = ?
+  `).run(guildId, pokemonKey);
+}
+
+function clearReservePingMappingsForUser(guildId, userId) {
+  return db.prepare(`
+    DELETE FROM reserve_ping_mappings
+    WHERE guild_id = ?
+      AND user_id = ?
+  `).run(guildId, userId);
+}
+
+function getReservePingMapping(guildId, pokemonName) {
+  const pokemonKey = getReservePokemonKey(pokemonName);
+
+  return db.prepare(`
+    SELECT *
+    FROM reserve_ping_mappings
+    WHERE guild_id = ?
+      AND pokemon_key = ?
+  `).get(guildId, pokemonKey);
+}
+
+function getReservePingMappingsByUser(guildId) {
+  const rows = db.prepare(`
+    SELECT display_name, user_id
+    FROM reserve_ping_mappings
+    WHERE guild_id = ?
+    ORDER BY user_id, display_name
+  `).all(guildId);
+
+  const result = new Map();
+
+  for (const row of rows) {
+    if (!result.has(row.user_id)) {
+      result.set(row.user_id, []);
+    }
+
+    result.get(row.user_id).push(row.display_name);
+  }
+
+  return result;
+}
+
+function parseReserveBulkLines(text) {
+  const results = [];
+  const errors = [];
+
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const match = line.match(/^<@!?(\d+)>\s*[-–—:]\s*(.+)$/);
+
+    if (!match) {
+      errors.push(line);
+      continue;
+    }
+
+    const userId = match[1];
+    const pokemon = parseReservePokemonList(match[2]);
+
+    if (!pokemon.length) {
+      errors.push(line);
+      continue;
+    }
+
+    results.push({
+      userId,
+      pokemon,
+    });
+  }
+
+  return {
+    entries: results,
+    errors,
+  };
 }
 
 function clampAnnouncementTemplateNumber(number) {
@@ -6230,6 +6374,43 @@ client.on('messageCreate', async (message) => {
 
     const guildId = message.guild.id;
 
+    if (
+      message.guild &&
+      message.channel.id === RESERVE_CHANNEL_ID &&
+      message.author.id === P2A_BOT_ID
+    ) {
+      const messageText = [
+        message.content,
+        ...message.embeds.flatMap((embed) => [
+          embed.title,
+          embed.description,
+          ...embed.fields.flatMap((field) => [
+            field.name,
+            field.value,
+          ]),
+        ]),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      const allReservePingsCleared =
+        messageText.includes('successfully cleared the reserve list for this server!');
+
+      if (allReservePingsCleared) {
+        const result = db.prepare(`
+          DELETE FROM reserve_ping_mappings
+          WHERE guild_id = ?
+        `).run(message.guild.id);
+
+        console.log(
+          `[reserve mappings] P2 confirmed full clear. Removed ${result.changes} saved mapping(s).`
+        );
+
+        return;
+      }
+    }
+
     // =========================
     // INCENSE TRACKER
     // =========================
@@ -6307,9 +6488,9 @@ client.on('messageCreate', async (message) => {
 
       const isStaff = hasStaffRole(message.member);
 
-      if (!['autoadd', 'add', 'remove', 'clear'].includes(action)) {
+      if (!['autoadd', 'add', 'remove', 'clear', 'bulkadd', 'bulkedit'].includes(action)) {
         await message.reply(
-          'Use `d!r autoadd`, `d!r add`, `d!r remove`, or `d!r clear`.'
+          'Use `d!r autoadd`, `d!r add`, `d!r remove`, `d!r clear`, `d!r bulkadd`, `d!r bulkedit`.'
         );
         return;
       }
@@ -6344,7 +6525,15 @@ client.on('messageCreate', async (message) => {
         for (const entry of entries) {
           if (!entry.pokemon.length) continue;
 
-          const pokemonList = entry.pokemon.join(', ');
+          const formattedPokemon = entry.pokemon.map((pokemonName) =>
+            saveReservePingMapping(
+              guildId,
+              entry.userId,
+              pokemonName
+            )
+          );
+
+          const pokemonList = formattedPokemon.join(', ');
 
           await sendReserveBotCommand(
             reserveChannel,
@@ -6368,6 +6557,132 @@ client.on('messageCreate', async (message) => {
         await message.reply(
           'Only staff or a buyer from the current/latest finished round can use this command.'
         );
+        return;
+      }
+
+      // -------------------------
+      // BULKADD / BULKEDIT
+      // STAFF + RESERVE CHANNEL ONLY
+      // -------------------------
+      if (action === 'bulkadd' || action === 'bulkedit') {
+        if (!isStaff) {
+          await message.reply(
+            `Only staff can use \`d!r ${action}\`.`
+          );
+          return;
+        }
+
+        const parsed = parseReserveBulkLines(argsText);
+
+        if (!parsed.entries.length) {
+          await message.reply(
+            `No valid entries found. Use:\n` +
+            `\`d!r ${action}\`\n` +
+            `\`@user - Togepi, Mareep, Lugia\``
+          );
+          return;
+        }
+
+        const blocked = [];
+
+        for (const entry of parsed.entries) {
+          const blockedTerm = findBlockedReserveTerm(entry.pokemon);
+
+          if (blockedTerm) {
+            blocked.push(
+              `<@${entry.userId}> contains blocked term: **${blockedTerm}**`
+            );
+          }
+        }
+
+        if (blocked.length) {
+          await message.reply(
+            `Nothing was changed because these entries are invalid:\n` +
+            blocked.join('\n')
+          );
+          return;
+        }
+
+        if (action === 'bulkadd') {
+          for (const entry of parsed.entries) {
+            const formattedPokemon = entry.pokemon.map((pokemonName) =>
+              saveReservePingMapping(
+                guildId,
+                entry.userId,
+                pokemonName
+              )
+            );
+
+            const uniquePokemon = [...new Set(formattedPokemon)];
+
+            if (!uniquePokemon.length) continue;
+
+            await sendReserveBotCommand(
+              message.channel,
+              `n!r add ${uniquePokemon.join(', ')} <@${entry.userId}>`
+            );
+
+            await sleep(RESERVE_COMMAND_DELAY_MS);
+          }
+
+          let replyText = 'Bulk reserve additions completed.';
+
+          if (parsed.errors.length) {
+            replyText +=
+              '\n\nSkipped invalid lines:\n' +
+              parsed.errors.map((line) => `• ${line}`).join('\n');
+          }
+
+          await message.reply(replyText);
+          return;
+        }
+
+        // BULKEDIT:
+        // For each line, remove the Pokémon globally,
+        // then add them to the mentioned user.
+        for (const entry of parsed.entries) {
+          const formattedPokemon = entry.pokemon.map((pokemonName) =>
+            formatReserveCommandPokemon(pokemonName)
+          );
+
+          const uniquePokemon = [...new Set(formattedPokemon)];
+
+          if (!uniquePokemon.length) continue;
+
+          const pokemonList = uniquePokemon.join(', ');
+
+          await sendReserveBotCommand(
+            message.channel,
+            `n!r remove ${pokemonList}`
+          );
+
+          await sleep(RESERVE_COMMAND_DELAY_MS);
+
+          await sendReserveBotCommand(
+            message.channel,
+            `n!r add ${pokemonList} <@${entry.userId}>`
+          );
+
+          await sleep(RESERVE_COMMAND_DELAY_MS);
+
+          for (const pokemonName of uniquePokemon) {
+            saveReservePingMapping(
+              guildId,
+              entry.userId,
+              pokemonName
+            );
+          }
+        }
+
+        let replyText = 'Bulk reserve edits completed.';
+
+        if (parsed.errors.length) {
+          replyText +=
+            `\n\nSkipped invalid lines:\n` +
+            parsed.errors.map((line) => `• ${line}`).join('\n');
+        }
+
+        await message.reply(replyText);
         return;
       }
 
@@ -6396,14 +6711,22 @@ client.on('messageCreate', async (message) => {
 
         if (blockedTerm) {
           await message.reply(
-            `\`${blockedTerm}\` cannot be used with reserve-ping commands.`
+            `\`${blockedTerm}\` cannot be used.`
           );
           return;
         }
 
+        const formattedPokemon = pokemonNames.map((pokemonName) =>
+          saveReservePingMapping(
+            guildId,
+            targetUserId,
+            pokemonName
+          )
+        );
+
         await sendReserveBotCommand(
           message.channel,
-          `n!r add ${pokemonNames.join(', ')} <@${targetUserId}>`
+          `n!r add ${formattedPokemon.join(', ')} <@${targetUserId}>`
         );
 
         return;
@@ -6431,6 +6754,13 @@ client.on('messageCreate', async (message) => {
           return;
         }
 
+        for (const pokemonName of pokemonNames) {
+          deleteReservePingMapping(
+            guildId,
+            pokemonName
+          );
+        }
+
         await sendReserveBotCommand(
           message.channel,
           `n!r remove ${pokemonNames.join(', ')}`
@@ -6449,6 +6779,11 @@ client.on('messageCreate', async (message) => {
           await message.reply('Use `d!r clear @user`.');
           return;
         }
+
+        clearReservePingMappingsForUser(
+          guildId,
+          targetUserId
+        );
 
         await sendReserveBotCommand(
           message.channel,
