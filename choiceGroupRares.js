@@ -20,7 +20,7 @@ const CHOICE_GROUP_RARES = {
     'shaymin',
   ],
 
-  yninjiuri: [
+  yuri: [
     'alolan marowak',
     'basculegion',
     'scream tail',

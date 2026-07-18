@@ -1155,7 +1155,9 @@ function getReservePingEntries(summary) {
       pokemonByUser.set(userId, new Set());
     }
 
-    pokemonByUser.get(userId).add(pokemonName);
+    pokemonByUser.get(userId).add(
+      prettyPokemonName(formatReserveOutputName(pokemonName))
+    );
   }
 
   return [...pokemonByUser.entries()]
@@ -6531,7 +6533,7 @@ client.on('messageCreate', async (message) => {
 
       '!barn',
       'go touch grass <a:3_:1496851131085754438>',
-      'These colours don\'t seem unusual...✨',
+      'These colours don\'t seem unusual... :rrshine:',
       'eevee sees a 4k chain from you soon <:15:1496852948293128202>',
       'Eevee says you should lighten up <:15:1496852948293128202>',
 
@@ -6555,7 +6557,7 @@ client.on('messageCreate', async (message) => {
 
       'org? when? never?',
       'my angel and devil died. it\'s only adhd posting now and she says go crazy',
-      '<@716390085896962058> c pharamp',
+      'come hither and feel the wrath of thy baguette!!',
       'rs weedle',
       'Banned dexdan92',
       '!licks !loj !locñ !locj !lock',

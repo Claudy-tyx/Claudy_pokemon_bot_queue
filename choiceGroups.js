@@ -48,24 +48,6 @@ const CHOICE_GROUPS = {
     'wooloo'
   ],
 
-  aeries: [
-    'raichu',
-    'crobat',
-    'altaria',
-    'zorua',
-    'goodra',
-    'rockruff',
-    'morelull',
-    'salazzle',
-    'stufful',
-    'wooloo',
-    'snom',
-    'clodsire',
-    'dracozolt',
-    'arctozolt',
-    'sprigatito'
-  ],
-
   yuri: [
     'aipom',
     'ambipom',
