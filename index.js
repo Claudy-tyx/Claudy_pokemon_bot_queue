@@ -1155,9 +1155,14 @@ function getReservePingEntries(summary) {
       pokemonByUser.set(userId, new Set());
     }
 
-    pokemonByUser.get(userId).add(
-      prettyPokemonName(formatReserveOutputName(pokemonName))
-    );
+    const reserveName = formatReserveOutputName(pokemonName);
+    const displayName = REGIONAL_FORM_BASE_POKEMON.has(pokemonName)
+      ? `normal ${pokemonName}`
+      : reserveName;
+
+    pokemonByUser
+      .get(userId)
+      .add(prettyPokemonName(displayName));
   }
 
   return [...pokemonByUser.entries()]
