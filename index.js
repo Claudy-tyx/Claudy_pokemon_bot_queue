@@ -67,6 +67,18 @@ const {
   REGIONAL_POKEMON: STEAL_REGIONAL_POKEMON,
   GMAX_POKEMON: STEAL_GMAX_POKEMON,
 } = require('./stealPrices');
+
+const RESERVE_CHANNEL_ID = '1431692513617514607';
+const RESERVE_COMMAND_DELAY_MS = 1000;
+
+const BLOCKED_RESERVE_TERMS = new Set([
+  'rare',
+  'regional',
+  'paradox',
+  'eeveelution',
+  'gmax',
+]);
+
 const MONITORED_CHANNELS = [
   '1359714826125054054',
   '1360355438385955046',
@@ -1097,6 +1109,119 @@ async function getLeaderboard(guildId, type = 'points', limit = 10) {
     value: doc.data()[column] || 0,
     ...doc.data(),
   }));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getReservePingEntries(summary) {
+  const pokemonOwnerMap = new Map();
+  const pokemonByUser = new Map();
+
+  const sortedSlots = [...(summary?.slotSnapshot || [])].sort((a, b) => {
+    const timeA = a?.claimed_at
+      ? new Date(a.claimed_at).getTime()
+      : Number.MAX_SAFE_INTEGER;
+
+    const timeB = b?.claimed_at
+      ? new Date(b.claimed_at).getTime()
+      : Number.MAX_SAFE_INTEGER;
+
+    if (timeA !== timeB) return timeA - timeB;
+
+    return String(a.slot_key).localeCompare(String(b.slot_key));
+  });
+
+  // Match /reservepings ownership priority:
+  // the first claimed slot that owns a Pokémon keeps it.
+  for (const slot of sortedSlots) {
+    if (!slot?.user_id) continue;
+
+    const ownedPokemon = getFinishedSlotOwnedPokemon(slot);
+
+    for (const pokemonName of ownedPokemon) {
+      const normalized = normalizePokemonName(pokemonName);
+
+      if (!normalized || normalized === MISSINGNO_NAME) continue;
+      if (pokemonOwnerMap.has(normalized)) continue;
+
+      pokemonOwnerMap.set(normalized, slot.user_id);
+    }
+  }
+
+  for (const [pokemonName, userId] of pokemonOwnerMap.entries()) {
+    if (!pokemonByUser.has(userId)) {
+      pokemonByUser.set(userId, new Set());
+    }
+
+    pokemonByUser.get(userId).add(pokemonName);
+  }
+
+  return [...pokemonByUser.entries()]
+    .map(([userId, pokemonSet]) => ({
+      userId,
+      pokemon: [...pokemonSet].sort((a, b) => a.localeCompare(b)),
+    }))
+    .filter((entry) => entry.pokemon.length > 0);
+}
+
+function isCurrentOrFinishedBuyer(guildId, userId) {
+  const currentBuyer = getSlots(guildId).some(
+    (slot) => slot.user_id === userId
+  );
+
+  if (currentBuyer) return true;
+
+  const summary = getFinishedHistory(guildId);
+
+  if (Array.isArray(summary?.holderIds)) {
+    return summary.holderIds.includes(userId);
+  }
+
+  return Array.isArray(summary?.slotSnapshot) &&
+    summary.slotSnapshot.some((slot) => slot.user_id === userId);
+}
+
+function parseReservePokemonList(rawText) {
+  return String(rawText || '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
+function findBlockedReserveTerm(pokemonNames) {
+  for (const pokemonName of pokemonNames) {
+    const normalized = normalizePokemonName(pokemonName);
+
+    if (BLOCKED_RESERVE_TERMS.has(normalized)) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
+function extractMentionedUserId(text) {
+  const match = String(text || '').match(/<@!?(\d+)>/);
+  return match?.[1] || null;
+}
+
+function removeUserMentionFromText(text) {
+  return String(text || '')
+    .replace(/<@!?\d+>/g, '')
+    .trim()
+    .replace(/,\s*$/, '')
+    .trim();
+}
+
+async function sendReserveBotCommand(channel, command) {
+  await channel.send({
+    content: command,
+    allowedMentions: {
+      parse: [],
+    },
+  });
 }
 
 async function getProfileIdForUser(guildId, userId) {
@@ -6147,6 +6272,185 @@ client.on('messageCreate', async (message) => {
     const channelId = message.channel?.id;
 
     if (!guildId || !channelId) return;
+
+    // =========================
+    // RESERVE PREFIX COMMANDS
+    // =========================
+    const reservePrefixMatch = message.content
+      .trim()
+      .match(/^e!(?:reserve|r)(?:\s+|$)/i);
+
+    if (reservePrefixMatch) {
+      const rawAfterPrefix = message.content
+        .trim()
+        .slice(reservePrefixMatch[0].length)
+        .trim();
+
+      const firstSpaceIndex = rawAfterPrefix.indexOf(' ');
+
+      const action = (
+        firstSpaceIndex === -1
+          ? rawAfterPrefix
+          : rawAfterPrefix.slice(0, firstSpaceIndex)
+      ).toLowerCase();
+
+      const argsText = firstSpaceIndex === -1
+        ? ''
+        : rawAfterPrefix.slice(firstSpaceIndex + 1).trim();
+
+      const isStaff = hasStaffRole(message.member);
+
+      if (!['autoadd', 'add', 'remove', 'clear'].includes(action)) {
+        await message.reply(
+          'Use `e!r autoadd`, `e!r add`, `e!r remove`, or `e!r clear`.'
+        );
+        return;
+      }
+
+      // -------------------------
+      // AUTOADD — STAFF ONLY
+      // -------------------------
+      if (action === 'autoadd') {
+        if (!isStaff) {
+          await message.reply('Only staff can use `e!r autoadd`.');
+          return;
+        }
+
+        const summary = getFinishedHistory(guildId);
+
+        if (!summary || !Array.isArray(summary.slotSnapshot)) {
+          await message.reply('No finished round data stored yet.');
+          return;
+        }
+
+        const reserveChannel = await message.guild.channels
+          .fetch(RESERVE_CHANNEL_ID)
+          .catch(() => null);
+
+        if (!reserveChannel || typeof reserveChannel.send !== 'function') {
+          await message.reply('The reserve channel could not be found.');
+          return;
+        }
+
+        const entries = getReservePingEntries(summary);
+
+        for (const entry of entries) {
+          if (!entry.pokemon.length) continue;
+
+          const pokemonList = entry.pokemon.join(', ');
+
+          await sendReserveBotCommand(
+            reserveChannel,
+            `n!r add ${pokemonList} <@${entry.userId}>`
+          );
+
+          await sleep(RESERVE_COMMAND_DELAY_MS);
+        }
+
+        return;
+      }
+
+      if (channelId !== RESERVE_CHANNEL_ID) {
+        await message.reply(
+          `This command may only be used in <#${RESERVE_CHANNEL_ID}>.`
+        );
+        return;
+      }
+
+      if (!isStaff && !isCurrentOrFinishedBuyer(guildId, message.author.id)) {
+        await message.reply(
+          'Only staff or a buyer from the current/latest finished round can use this command.'
+        );
+        return;
+      }
+
+      // -------------------------
+      // ADD
+      // -------------------------
+      if (action === 'add') {
+        const targetUserId = extractMentionedUserId(argsText);
+
+        if (!targetUserId) {
+          await message.reply(
+            'Use `e!r add pokemon, pokemon @user`.'
+          );
+          return;
+        }
+
+        const pokemonText = removeUserMentionFromText(argsText);
+        const pokemonNames = parseReservePokemonList(pokemonText);
+
+        if (!pokemonNames.length) {
+          await message.reply('Please include at least one Pokémon.');
+          return;
+        }
+
+        const blockedTerm = findBlockedReserveTerm(pokemonNames);
+
+        if (blockedTerm) {
+          await message.reply(
+            `\`${blockedTerm}\` cannot be used with reserve-ping commands.`
+          );
+          return;
+        }
+
+        await sendReserveBotCommand(
+          message.channel,
+          `n!r add ${pokemonNames.join(', ')} <@${targetUserId}>`
+        );
+
+        return;
+      }
+
+      // -------------------------
+      // REMOVE
+      // -------------------------
+      if (action === 'remove') {
+        const pokemonNames = parseReservePokemonList(argsText);
+
+        if (!pokemonNames.length) {
+          await message.reply(
+            'Use `e!r remove pokemon, pokemon`.'
+          );
+          return;
+        }
+
+        const blockedTerm = findBlockedReserveTerm(pokemonNames);
+
+        if (blockedTerm) {
+          await message.reply(
+            `\`${blockedTerm}\` cannot be used with reserve-ping commands.`
+          );
+          return;
+        }
+
+        await sendReserveBotCommand(
+          message.channel,
+          `n!r remove ${pokemonNames.join(', ')}`
+        );
+
+        return;
+      }
+
+      // -------------------------
+      // CLEAR
+      // -------------------------
+      if (action === 'clear') {
+        const targetUserId = extractMentionedUserId(argsText);
+
+        if (!targetUserId) {
+          await message.reply('Use `e!r clear @user`.');
+          return;
+        }
+
+        await sendReserveBotCommand(
+          message.channel,
+          `n!r clear <@${targetUserId}>`
+        );
+
+        return;
+      }
+    }
 
     // =========================
     // SHORTCUT COMMANDS (!p / !r)
