@@ -71,11 +71,12 @@ const {
 const P2A_BOT_ID = '1254602968938844171';
 const RESERVE_CHANNEL_ID = '1431692513617514607';
 const RESERVE_COMMAND_DELAY_MS = 1000;
+const pendingReserveCommandUsers = new Map();
+const RESERVE_ERROR_TRACKING_MS = 2 * 60 * 1000;
 
 const BLOCKED_RESERVE_TERMS = new Set([
   'rare',
   'regional',
-  'paradox',
   'eeveelution',
   'gmax',
 ]);
@@ -662,11 +663,21 @@ function getReservePokemonKey(name) {
 }
 
 function formatReserveCommandPokemon(name) {
-  return prettyPokemonName(
-    formatReserveOutputName(
-      String(name || '').trim()
-    )
+  const formatted = formatReserveOutputName(
+    String(name || '').trim()
   );
+
+  return String(formatted)
+    .split(/(\s+|-)/)
+    .map((part) => {
+      if (/^\s+$/.test(part) || part === '-') {
+        return part;
+      }
+
+      return part.charAt(0).toUpperCase() +
+        part.slice(1).toLowerCase();
+    })
+    .join('');
 }
 
 function saveReservePingMapping(guildId, userId, pokemonName) {
@@ -758,7 +769,16 @@ function parseReserveBulkLines(text) {
     .filter(Boolean);
 
   for (const line of lines) {
-    const match = line.match(/^<@!?(\d+)>\s*[-–—:]\s*(.+)$/);
+    /*
+     * Accepted:
+     * @user Togepi, Mareep
+     * @user - Togepi, Mareep
+     * @user: Togepi, Mareep
+     * @user — Togepi, Mareep
+     */
+    const match = line.match(
+      /^<@!?(\d+)>\s*(?:[-–—:]\s*)?(.+)$/
+    );
 
     if (!match) {
       errors.push(line);
@@ -840,6 +860,37 @@ async function safeInteractionReply(interaction, payload) {
   } catch {
     return null;
   }
+}
+
+function trackReserveCommandUser(channelId, userId, action) {
+  pendingReserveCommandUsers.set(channelId, {
+    userId,
+    action,
+    expiresAt: Date.now() + RESERVE_ERROR_TRACKING_MS,
+  });
+}
+
+function getTrackedReserveCommandUser(channelId) {
+  const pending = pendingReserveCommandUsers.get(channelId);
+
+  if (!pending) return null;
+
+  if (pending.expiresAt <= Date.now()) {
+    pendingReserveCommandUsers.delete(channelId);
+    return null;
+  }
+
+  return pending;
+}
+
+function clearTrackedReserveCommandUser(channelId, userId = null) {
+  const pending = pendingReserveCommandUsers.get(channelId);
+
+  if (!pending) return;
+
+  if (userId && pending.userId !== userId) return;
+
+  pendingReserveCommandUsers.delete(channelId);
 }
 
 async function forceLinkAlt(guildId, altUserId, mainUserId, staffUserId) {
@@ -6452,6 +6503,72 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
+    if (
+      message.guild &&
+      message.channel.id === RESERVE_CHANNEL_ID &&
+      message.author.id === P2A_BOT_ID
+    ) {
+      const p2aText = [
+        message.content,
+        ...message.embeds.flatMap((embed) => [
+          embed.title,
+          embed.description,
+          ...embed.fields.flatMap((field) => [
+            field.name,
+            field.value,
+          ]),
+        ]),
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      /*
+      * Matches examples such as:
+      * Unknown pokémon: `piroutte meloetta`
+      * Unknown Pokémon: piroutte meloetta
+      *
+      * Handles either é or e in Pokémon.
+      */
+      const unknownPokemonMatches = [
+        ...p2aText.matchAll(
+          /unknown pok[eé]mon\s*:\s*`?([^`\n]+?)`?(?:\n|$)/gi
+        ),
+      ];
+
+      if (unknownPokemonMatches.length) {
+        const pending = getTrackedReserveCommandUser(
+          message.channel.id
+        );
+
+        if (pending) {
+          const unknownPokemon = [
+            ...new Set(
+              unknownPokemonMatches.map((match) =>
+                match[1].trim()
+              )
+            ),
+          ];
+
+          await message.channel.send({
+            content:
+              `<@${pending.userId}> P2A could not recognise ` +
+              `${unknownPokemon.length === 1 ? 'this Pokémon' : 'these Pokémon'} ` +
+              `during \`${pending.action}\`:\n` +
+              unknownPokemon
+                .map((name) => `• \`${name}\``)
+                .join('\n'),
+            allowedMentions: {
+              users: [pending.userId],
+            },
+          });
+        }
+
+        return;
+      }
+
+      // Keep your full-reserve-clear confirmation detection here too.
+    }
+
     // after incense handling, ignore all other bot messages
     if (message.author.bot) return;
 
@@ -6522,18 +6639,16 @@ client.on('messageCreate', async (message) => {
 
         const entries = getReservePingEntries(summary);
 
+        trackReserveCommandUser(
+          reserveChannel.id,
+          message.author.id,
+          'autoadd'
+        );
+
         for (const entry of entries) {
           if (!entry.pokemon.length) continue;
 
-          const formattedPokemon = entry.pokemon.map((pokemonName) =>
-            saveReservePingMapping(
-              guildId,
-              entry.userId,
-              pokemonName
-            )
-          );
-
-          const pokemonList = formattedPokemon.join(', ');
+          const pokemonList = entry.pokemon.join(', ');
 
           await sendReserveBotCommand(
             reserveChannel,
@@ -6602,24 +6717,21 @@ client.on('messageCreate', async (message) => {
           );
           return;
         }
+        trackReserveCommandUser(
+          message.channel.id,
+          message.author.id,
+          action
+        );
 
         if (action === 'bulkadd') {
           for (const entry of parsed.entries) {
-            const formattedPokemon = entry.pokemon.map((pokemonName) =>
-              saveReservePingMapping(
-                guildId,
-                entry.userId,
-                pokemonName
-              )
-            );
+            const pokemon = [...new Set(entry.pokemon)];
 
-            const uniquePokemon = [...new Set(formattedPokemon)];
-
-            if (!uniquePokemon.length) continue;
+            if (!pokemon.length) continue;
 
             await sendReserveBotCommand(
               message.channel,
-              `n!r add ${uniquePokemon.join(', ')} <@${entry.userId}>`
+              `n!r add ${pokemon.join(', ')} <@${entry.userId}>`
             );
 
             await sleep(RESERVE_COMMAND_DELAY_MS);
@@ -6638,18 +6750,14 @@ client.on('messageCreate', async (message) => {
         }
 
         // BULKEDIT:
-        // For each line, remove the Pokémon globally,
-        // then add them to the mentioned user.
+        // Remove each listed Pokémon globally,
+        // then add the same text to the mentioned user.
         for (const entry of parsed.entries) {
-          const formattedPokemon = entry.pokemon.map((pokemonName) =>
-            formatReserveCommandPokemon(pokemonName)
-          );
+          const pokemon = [...new Set(entry.pokemon)];
 
-          const uniquePokemon = [...new Set(formattedPokemon)];
+          if (!pokemon.length) continue;
 
-          if (!uniquePokemon.length) continue;
-
-          const pokemonList = uniquePokemon.join(', ');
+          const pokemonList = pokemon.join(', ');
 
           await sendReserveBotCommand(
             message.channel,
@@ -6664,21 +6772,13 @@ client.on('messageCreate', async (message) => {
           );
 
           await sleep(RESERVE_COMMAND_DELAY_MS);
-
-          for (const pokemonName of uniquePokemon) {
-            saveReservePingMapping(
-              guildId,
-              entry.userId,
-              pokemonName
-            );
-          }
         }
 
         let replyText = 'Bulk reserve edits completed.';
 
         if (parsed.errors.length) {
           replyText +=
-            `\n\nSkipped invalid lines:\n` +
+            '\n\nSkipped invalid lines:\n' +
             parsed.errors.map((line) => `• ${line}`).join('\n');
         }
 
@@ -6716,17 +6816,11 @@ client.on('messageCreate', async (message) => {
           return;
         }
 
-        const formattedPokemon = pokemonNames.map((pokemonName) =>
-          saveReservePingMapping(
-            guildId,
-            targetUserId,
-            pokemonName
-          )
-        );
+        const uniquePokemon = [...new Set(pokemonNames)];
 
         await sendReserveBotCommand(
           message.channel,
-          `n!r add ${formattedPokemon.join(', ')} <@${targetUserId}>`
+          `n!r add ${uniquePokemon.join(', ')} <@${targetUserId}>`
         );
 
         return;
@@ -6754,16 +6848,11 @@ client.on('messageCreate', async (message) => {
           return;
         }
 
-        for (const pokemonName of pokemonNames) {
-          deleteReservePingMapping(
-            guildId,
-            pokemonName
-          );
-        }
+        const uniquePokemon = [...new Set(pokemonNames)];
 
         await sendReserveBotCommand(
           message.channel,
-          `n!r remove ${pokemonNames.join(', ')}`
+          `n!r remove ${uniquePokemon.join(', ')}`
         );
 
         return;
