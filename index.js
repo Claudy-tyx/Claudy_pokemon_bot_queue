@@ -3556,11 +3556,17 @@ function resolvePokemonAlias(name) {
 function prettyPokemonName(name) {
   if (!name) return '';
 
+  const normalized = String(name).toLowerCase();
+
+  if (normalized === 'non-binary-flag-vivillon') {
+    return 'Non-Binary Flag Vivillon';
+  }
+
   return String(name)
-    .replace(/-/g, ' ')              // convert hyphens → spaces
+    .replace(/-/g, ' ')
     .split(' ')
     .filter(Boolean)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 }
 
@@ -4626,9 +4632,21 @@ function buildQueueEmbedFromSlots(slots, options = {}) {
 
   if (eventSlots.length) {
     eventSlots.forEach((slot) => {
+      let value = buildSlotValue(slot);
+
+      // Keep the full Vivillon list internally,
+      // but shorten how it appears in the queue embed.
+      if (slot.slot_key === 'event4') {
+        const owner = slot.user_id
+          ? `<@${slot.user_id}>`
+          : 'Open';
+
+        value = `${owner}\nPride Vivillons`;
+      }
+
       embed.addFields({
         name: slot.slot_label,
-        value: buildSlotValue(slot),
+        value,
         inline: true,
       });
     });
