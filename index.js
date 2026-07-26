@@ -132,14 +132,55 @@ const MONITORED_CHANNELS = [
 
 const EPHEMERAL = 64;
 
-const EVENT_QUEUE_ENABLED = false;
+const EVENT_QUEUE_ENABLED = true;
 
+// @Proud Amsterdammer Pyroar @Proud Paulistano Luxray @Proud New Yorker Braviary @Pride Flag Vivillon@Proud Taipeier Ursaring @Proud Sydneysider Komala
 const EVENT_SLOT_CONFIG = [
   {
     key: 'event1',
-    label: 'Pokopia Ditto',
-    fixedPokemon: 'pokopia ditto',
+    label: 'Proud Pyroar',
+    fixedPokemon: 'Proud Amsterdammer Pyroar',
     buyerRoleEnv: 'EVENT1_BUYER_ROLE_ID',
+    maxPokemon: 2,
+  },
+
+  {
+    key: 'event2',
+    label: 'Proud Luxray',
+    fixedPokemon: 'Proud Paulistano Luxray',
+    buyerRoleEnv: 'EVENT2_BUYER_ROLE_ID',
+    maxPokemon: 2,
+  },
+
+  {
+    key: 'event3',
+    label: 'Proud Braviary',
+    fixedPokemon: 'Proud New Yorker Braviary',
+    buyerRoleEnv: 'EVENT3_BUYER_ROLE_ID',
+    maxPokemon: 2,
+  },
+
+  {
+    key: 'event4',
+    label: 'Pride Vivillon',
+    fixedPokemon: 'Alloace Flag Vivillon, Androgyne Flag Vivillon, Androsexual Flag Vivillon, Aroace Flag Vivillon, Aromantic Flag Vivillon, Asexual Flag Vivillon, Autoromantic Flag Vivillon, Bisexual Flag Vivillon, Demiromantic Flag Vivillon, Demisexual Flag Vivillon, Desinoromantic Flag Vivillon, Gay Flag Vivillon, Gender Creative Flag Vivillon, Genderfluid Flag Vivillon, Genderqueer Flag Vivillon, Gynsexual Flag Vivillon, Lesbian Flag Vivillon, Maverique Flag Vivillon, Neutrois Flag Vivillon, Non-Binary Flag Vivillon, Pansexual Flag Vivillon, Polysexual Flag Vivillon, Pride Flag Vivillon, Queer Flag Vivillon, Transgender Flag Vivillon',
+    buyerRoleEnv: 'EVENT4_BUYER_ROLE_ID',
+    maxPokemon: 2,
+  },
+
+  {
+    key: 'event5',
+    label: 'Proud Ursaring',
+    fixedPokemon: 'Proud Taipeier Ursaring',
+    buyerRoleEnv: 'EVENT5_BUYER_ROLE_ID',
+    maxPokemon: 2,
+  },
+
+  {
+    key: 'event6',
+    label: 'Proud Komala',
+    fixedPokemon: 'Proud Sydneysider Komala',
+    buyerRoleEnv: 'EVENT6_BUYER_ROLE_ID',
     maxPokemon: 2,
   },
   // add event3 / event4 later if needed
@@ -249,6 +290,40 @@ const FIXED_REMOVE_TAIL = [
   'Regional',
   'Gmax',
   'Paradox',
+
+  // Pride event Pokémon
+  'Proud Amsterdammer Pyroar',
+  'Proud Paulistano Luxray',
+  'Proud New Yorker Braviary',
+  'Proud Taipeier Ursaring',
+  'Proud Sydneysider Komala',
+
+  // Pride Flag Vivillon forms
+  'Alloace Flag Vivillon',
+  'Androgyne Flag Vivillon',
+  'Androsexual Flag Vivillon',
+  'Aroace Flag Vivillon',
+  'Aromantic Flag Vivillon',
+  'Asexual Flag Vivillon',
+  'Autoromantic Flag Vivillon',
+  'Bisexual Flag Vivillon',
+  'Demiromantic Flag Vivillon',
+  'Demisexual Flag Vivillon',
+  'Desinoromantic Flag Vivillon',
+  'Gay Flag Vivillon',
+  'Gender Creative Flag Vivillon',
+  'Genderfluid Flag Vivillon',
+  'Genderqueer Flag Vivillon',
+  'Gynsexual Flag Vivillon',
+  'Lesbian Flag Vivillon',
+  'Maverique Flag Vivillon',
+  'Neutrois Flag Vivillon',
+  'Non-Binary Flag Vivillon',
+  'Pansexual Flag Vivillon',
+  'Polysexual Flag Vivillon',
+  'Pride Flag Vivillon',
+  'Queer Flag Vivillon',
+  'Transgender Flag Vivillon',
 ];
 
 const ALL_FORM_POKEMON = new Set([
@@ -5432,22 +5507,31 @@ function buildButtons(guildId) {
     )
   );
 
-  // Row 4: event slots only
+  // Row 4: first five event slots
   if (eventSlots.length) {
-    const row = new ActionRowBuilder();
+    const eventRow = new ActionRowBuilder();
 
     for (const slot of eventSlots.slice(0, 5)) {
-      row.addComponents(makeClaimButton(slot));
+      eventRow.addComponents(makeClaimButton(slot));
     }
 
-    rows.push(row);
+    rows.push(eventRow);
   }
 
-  // Row 5: org / reserver / lock / unlock
+  // Row 5: remaining event slot + org / reserver / lock / unlock
   const bottomRow = new ActionRowBuilder();
 
-  if (orgSlot) bottomRow.addComponents(makeClaimButton(orgSlot));
-  if (reserverSlot) bottomRow.addComponents(makeClaimButton(reserverSlot));
+  for (const slot of eventSlots.slice(5)) {
+    bottomRow.addComponents(makeClaimButton(slot));
+  }
+
+  if (orgSlot) {
+    bottomRow.addComponents(makeClaimButton(orgSlot));
+  }
+
+  if (reserverSlot) {
+    bottomRow.addComponents(makeClaimButton(reserverSlot));
+  }
 
   bottomRow.addComponents(
     new ButtonBuilder()
@@ -6693,7 +6777,7 @@ client.on('messageCreate', async (message) => {
           await message.reply(
             `No valid entries found. Use:\n` +
             `\`d!r ${action}\`\n` +
-            `\`@user - Togepi, Mareep, Lugia\``
+            `\`@user - Togepi, Mareep, Reshiram\``
           );
           return;
         }
@@ -6962,7 +7046,7 @@ client.on('messageCreate', async (message) => {
 
       '!barn',
       'go touch grass <a:3_:1496851131085754438>',
-      'These colours don\'t seem unusual... :rrshine:',
+      'These colours don\'t seem unusual... <:rrshine:1356468409474486425>',
       'eevee sees a 4k chain from you soon <:15:1496852948293128202>',
       'Eevee says you should lighten up <:15:1496852948293128202>',
 
@@ -6988,11 +7072,11 @@ client.on('messageCreate', async (message) => {
       'my angel and devil died. it\'s only adhd posting now and she says go crazy',
       'come hither and feel the wrath of thy baguette!!',
       'rs weedle',
-      'Banned dexdan92',
-      '!licks !loj !locñ !locj !lock',
-      'diagonals regnalsgio',
-      'I\'m going back to sleep <:10:1496852957927571526>',
-      'bots work but disco staff won\'t',
+      'dance like a floofvee',
+      'don\'t worry that pretty little head of yours, floofvees always have a plan!',
+      'some genius you are!',
+      'oh look what we have here...a cute floofvee',
+      'let\'s kick up a ruckus, like there\'s no tomorrow',
       '<:73223eevee:1496874075098972283><:38:1496874077174890510><:39:1496874079024709813><:40:1496874081927299243><:41:1496874084372316201><:42:1496874087077773374><:43:1496874089724248207><:44:1496874091498573985><:45:1496874092907729077>',
       '<a:ditto1:1496853870830157944><a:ditto1:1496853870830157944><a:ditto1:1496853870830157944><a:ditto1:1496853870830157944><a:ditto1:1496853870830157944><a:ditto1:1496853870830157944><a:ditto1:1496853870830157944>',
     ];
