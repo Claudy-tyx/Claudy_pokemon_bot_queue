@@ -1,4 +1,14 @@
 const CHOICE_GROUP_RARES = {
+
+  pride: [
+    'Alolan muk',
+    'Galarian Ponyta',
+    'Galarian Stunfisk',
+    'Galarian Yamask',
+    'Cosmog',
+    'Xerneas',
+  ],
+
   jenn: [
     'galarian darumaka',
     'manaphy',

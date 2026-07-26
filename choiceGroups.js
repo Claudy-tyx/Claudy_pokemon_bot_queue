@@ -1,5 +1,20 @@
 const CHOICE_GROUPS = {
 
+  pride: [
+    'Aegislash', 
+    'Bruxish', 
+    'Drifloon', 
+    'Gardevoir', 
+    'Goomy', 
+    'Jynx', 
+    'Masquerain', 
+    'Milotic', 
+    'Porygon', 
+    'Quaquaval', 
+    'Quaxwell', 
+    'Shedinja'
+  ],
+
   jenn: [
     'carbink',
     'cryogonal',
