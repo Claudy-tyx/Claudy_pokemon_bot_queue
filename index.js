@@ -9310,8 +9310,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
 
-        return interaction.reply({
-          content: buildReserveListMessage(summary),
+        const chunks = splitDiscordMessage(
+          buildReserveListMessage(summary),
+          1900
+        );
+
+        await interaction.reply({
+          content: chunks[0] || 'No reserve list found.',
           components: [
             new ActionRowBuilder().addComponents(
               new ButtonBuilder()
@@ -9329,6 +9334,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
             ),
           ],
         });
+
+        for (const chunk of chunks.slice(1)) {
+          await interaction.followUp({
+            content: chunk,
+          });
+        }
+
+        return;
       }
 
       if (interaction.commandName === 'pasthistory') {
@@ -10939,26 +10952,47 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (action === 'copylist') {
+        await interaction.deferReply({
+          flags: EPHEMERAL,
+        });
+
         const listType = parts[2];
         const summary = getFinishedHistory(interaction.guild.id);
 
         if (!summary) {
-          return interaction.reply({
+          return interaction.editReply({
             content: 'No finished reserve list stored yet.',
-            flags: EPHEMERAL,
           });
         }
 
         let content = '';
-        if (listType === 'choice') content = summary.choiceList;
-        else if (listType === 'reserves') content = summary.reservesList;
-        else if (listType === 'remove') content = summary.removeList;
-        else if (listType === 'history') content = buildPastHistoryCopyText(summary);
-        else content = 'Unknown list type.';
 
-        return interaction.reply({
-          content,
+        if (listType === 'choice') {
+          content = summary.choiceList;
+        } else if (listType === 'reserves') {
+          content = summary.reservesList;
+        } else if (listType === 'remove') {
+          content = summary.removeList;
+        } else if (listType === 'history') {
+          content = buildPastHistoryCopyText(summary);
+        } else {
+          content = 'Unknown list type.';
+        }
+
+        const chunks = splitDiscordMessage(content, 1900);
+
+        await interaction.editReply({
+          content: chunks[0] || 'No entries found.',
         });
+
+        for (const chunk of chunks.slice(1)) {
+          await interaction.followUp({
+            content: chunk,
+            flags: EPHEMERAL,
+          });
+        }
+
+        return;
       }
 
       if (action === 'raffle_cancel') {
