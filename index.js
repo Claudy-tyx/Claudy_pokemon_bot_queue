@@ -3556,7 +3556,10 @@ function resolvePokemonAlias(name) {
 function prettyPokemonName(name) {
   if (!name) return '';
 
-  const normalized = String(name).toLowerCase();
+  const normalized = String(name)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-');
 
   if (normalized === 'non-binary-flag-vivillon') {
     return 'Non-Binary Flag Vivillon';
@@ -3564,9 +3567,13 @@ function prettyPokemonName(name) {
 
   return String(name)
     .replace(/-/g, ' ')
-    .split(' ')
+    .split(/\s+/)
     .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .map(
+      (word) =>
+        word.charAt(0).toUpperCase() +
+        word.slice(1).toLowerCase()
+    )
     .join(' ');
 }
 
