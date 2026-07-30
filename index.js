@@ -197,8 +197,8 @@ const BASE_SLOT_DEFS = [
   { key: 'res2', label: '1Res B', maxPokemon: 1, type: 'normal' },
   { key: 'res3', label: '1Res C', maxPokemon: 1, type: 'normal' },
   { key: 'res4', label: '1Res D', maxPokemon: 1, type: 'normal' },
-  { key: 'res5', label: '1Res E', maxPokemon: 1, type: 'normal' },
-  { key: 'res6', label: '1Res F', maxPokemon: 1, type: 'normal' },
+  //{ key: 'res5', label: '1Res E', maxPokemon: 1, type: 'normal' },
+  //{ key: 'res6', label: '1Res F', maxPokemon: 1, type: 'normal' },
   { key: 'res7', label: '2Res GH', maxPokemon: 2, type: 'normal' },
   { key: 'res8', label: '2Res IJ', maxPokemon: 2, type: 'normal' },
   { key: 'booster1', label: 'Booster1', maxPokemon: 1, type: 'normal' },
@@ -269,7 +269,7 @@ const CHOICE_GROUP_NAMES = Object.keys(CHOICE_GROUPS || {});
 const MAX_SLASH_CHOICES = 25;
 const MISSINGNO_NAME = 'missingno';
 const RES_SLOT_REGEX = /^res[1-8]$/;
-const SINGLE_RES_SLOT_KEYS = ['res1', 'res2', 'res3', 'res4', 'res5', 'res6'];
+const SINGLE_RES_SLOT_KEYS = ['res1', 'res2', 'res3', 'res4'];
 const DOUBLE_RES_SLOT_KEYS = ['res7', 'res8'];
 const overpauseTimers = new Map(); // key = guildId:channelId -> timeout
 const MAX_NOTES_PER_SLOT = 3;
@@ -1430,10 +1430,19 @@ function getReservePingEntries(summary) {
       ? `normal ${pokemonName}`
       : reserveName;
 
+    let finalDisplayName = prettyPokemonName(displayName);
+
+    if (
+      finalDisplayName.toLowerCase() ===
+      'non binary flag vivillon'
+    ) {
+      finalDisplayName = 'Non-Binary Flag Vivillon';
+    }
+
     pokemonByUser
       .get(userId)
-      .add(prettyPokemonName(displayName));
-  }
+      .add(finalDisplayName);
+      }
 
   return [...pokemonByUser.entries()]
     .map(([userId, pokemonSet]) => ({
@@ -5379,9 +5388,18 @@ function buildReservePingsEmbed(summary) {
       ? `normal ${pokemonName}`
       : reserveName;
 
+    let finalDisplayName = prettyPokemonName(displayName);
+
+    if (
+      finalDisplayName.toLowerCase() ===
+      'non binary flag vivillon'
+    ) {
+      finalDisplayName = 'Non-Binary Flag Vivillon';
+    }
+
     pokemonByUser
       .get(userId)
-      .add(prettyPokemonName(displayName));
+      .add(finalDisplayName);
   }
 
   const allUserIds = new Set([
