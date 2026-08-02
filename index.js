@@ -822,38 +822,6 @@ function getReservePokemonKey(name) {
     .replace(/\s+/g, ' ');
 }
 
-function fixSpecialReserveName(name) {
-  const text = String(name || '').trim();
-
-  const normalized = text
-    .toLowerCase()
-    .replace(/[-_\s]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (normalized === 'non binary flag vivillon') {
-    return 'Non-Binary Flag Vivillon';
-  }
-
-  if (normalized === 'mime jr.') {
-    return 'Mime Jr.';
-  }
-
-  if (normalized === 'mr. mime') {
-    return 'Mr. Mime';
-  }
-
-  if (normalized === 'mr. rime') {
-    return 'Mr. Rime';
-  }
-
-  if (normalized === 'type: null') {
-    return 'Type: Null';
-  }
-
-  return text;
-}
-
 function formatReserveCommandPokemon(name) {
 	if (PRESERVE_PRETTY_NAMES.has(getReservePokemonKey(name).replace(/ /g, '-'))) {
 	  return PRESERVE_PRETTY_NAMES.get(
@@ -1568,13 +1536,12 @@ function getReservePingEntries(summary) {
 
     let finalDisplayName = prettyPokemonName(displayName);
 
-    const finalDisplayName = fixSpecialReserveName(
-      prettyPokemonName(displayName)
-    );
-
-    pokemonByUser
-      .get(userId)
-      .add(finalDisplayName);
+    if (
+      finalDisplayName.toLowerCase() ===
+      'non binary flag vivillon'
+    ) {
+      finalDisplayName = 'Non-Binary Flag Vivillon';
+    }
 
     pokemonByUser
       .get(userId)
@@ -5426,18 +5393,37 @@ function buildQueueEmbedFromSlots(slots, options = {}) {
 			    : 'Open';
 			
 			  const fixedPrideNames = new Set(
-			    EVENT_SLOT_CONFIG
-			      .find((config) => config.key === 'event4')
-			      ?.fixedPokemon
-			      ?.split(',')
+			    String(
+			      EVENT_SLOT_CONFIG.find(
+			        (config) => config.key === 'event4'
+			      )?.fixedPokemon || ''
+			    )
+			      .split(',')
 			      .map((name) => normalizePokemonName(name))
-			      .filter(Boolean) || []
+			      .filter(Boolean)
 			  );
 			
-			  const chosenPokemon = parsePokemonList(slot.pokemon_names)
-			    .filter((name) => !fixedPrideNames.has(normalizePokemonName(name)))
+			  const allSlotPokemon = Array.isArray(slot.pokemon_names)
+			    ? slot.pokemon_names
+			    : parsePokemonList(slot.pokemon_names);
+			
+			  const chosenPokemon = allSlotPokemon
+			    .filter((name) => {
+			      const normalized = normalizePokemonName(name);
+			
+			      return (
+			        normalized &&
+			        !fixedPrideNames.has(normalized) &&
+			        normalized !== 'pride-vivillons' &&
+			        normalized !== 'pride-vivillon'
+			      );
+			    })
 			    .map((name) =>
-			      prettyPokemonName(formatReserveOutputName(name))
+			      fixSpecialReserveName(
+			        prettyPokemonName(
+			          formatReserveOutputName(name)
+			        )
+			      )
 			    );
 			
 			  value =
@@ -7638,9 +7624,7 @@ client.on('messageCreate', async (message) => {
         for (const entry of entries) {
           if (!entry.pokemon.length) continue;
 
-          const pokemonList = entry.pokemon
-            .map(fixSpecialReserveName)
-            .join(', ');
+          const pokemonList = entry.pokemon.join(', ');
 
           await sendReserveBotCommand(
             reserveChannel,
