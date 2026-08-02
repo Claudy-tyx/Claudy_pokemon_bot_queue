@@ -50,6 +50,12 @@ const CHOICE_GROUP_RARES = {
     'slither wing',
   ],
 
+  lils: [
+    'pheromosa',
+    'sneasler,,
+    'tapu fini'
+  ],
+
   quests: [
     'hisuian lilligant',
     'arceus',
