@@ -822,6 +822,38 @@ function getReservePokemonKey(name) {
     .replace(/\s+/g, ' ');
 }
 
+function fixSpecialReserveName(name) {
+  const text = String(name || '').trim();
+
+  const normalized = text
+    .toLowerCase()
+    .replace(/[-_\s]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (normalized === 'non binary flag vivillon') {
+    return 'Non-Binary Flag Vivillon';
+  }
+
+  if (normalized === 'mime jr.') {
+    return 'Mime Jr.';
+  }
+
+  if (normalized === 'mr. mime') {
+    return 'Mr. Mime';
+  }
+
+  if (normalized === 'mr. rime') {
+    return 'Mr. Rime';
+  }
+
+  if (normalized === 'type: null') {
+    return 'Type: Null';
+  }
+
+  return text;
+}
+
 function formatReserveCommandPokemon(name) {
 	if (PRESERVE_PRETTY_NAMES.has(getReservePokemonKey(name).replace(/ /g, '-'))) {
 	  return PRESERVE_PRETTY_NAMES.get(
