@@ -2731,7 +2731,9 @@ async function ensureStaffSheetTabs(sheets, spreadsheetId) {
       addSheet: {
         properties: {
           title: STAFF_SUMMARY_SHEET_NAME,
-          frozenRowCount: 1,
+          gridProperties: {
+            frozenRowCount: 1,
+          },
         },
       },
     });
@@ -2742,7 +2744,9 @@ async function ensureStaffSheetTabs(sheets, spreadsheetId) {
       addSheet: {
         properties: {
           title: STAFF_ACTIVITY_LOG_SHEET_NAME,
-          frozenRowCount: 1,
+          gridProperties: {
+            frozenRowCount: 1,
+          },
         },
       },
     });
