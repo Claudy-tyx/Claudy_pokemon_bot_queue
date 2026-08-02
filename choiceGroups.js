@@ -115,6 +115,34 @@ const CHOICE_GROUPS = {
     'salandit'
   ],
 
+  lils: [
+    'aromatisse',
+    'bruxish', 
+    'delphox', 
+    'florges', 
+    'frillish', 
+    'gardevoir', 
+    'glameow', 
+    'gothitelle', 
+    'jynx', 
+    'liepard', 
+    'lurantis', 
+    'mandibuzz', 
+    'mienshao', 
+    'milotic', 
+    'mismagius', 
+    'nidoqueen', 
+    'lilligant', 
+    'ninetales', 
+    'oricorio', 
+    'primarina', 
+    'roserade', 
+    'salazzle', 
+    'tsareena', 
+    'vespiquen', 
+    'weavile'
+  ], 
+
   
   paper: [
     'carbink',
