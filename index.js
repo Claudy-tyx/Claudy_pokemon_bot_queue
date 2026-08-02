@@ -56,6 +56,7 @@ const {
   AttachmentBuilder,
 } = require('discord.js');
 const Database = require('better-sqlite3');
+const { google } = require('googleapis');
 const { VALID_POKEMON } = require('./validPokemon');
 const { CHOICE_GROUPS } = require('./choiceGroups');
 const { CHOICE_GROUP_RARES } = require('./choiceGroupRares');
@@ -73,6 +74,49 @@ const RESERVE_CHANNEL_ID = '1431692513617514607';
 const RESERVE_COMMAND_DELAY_MS = 1000;
 const pendingReserveCommandUsers = new Map();
 const RESERVE_ERROR_TRACKING_MS = 2 * 60 * 1000;
+const STAFF_SUMMARY_SHEET_NAME = 'Staff Summary';
+const STAFF_ACTIVITY_LOG_SHEET_NAME = 'Activity Log';
+
+/*
+ * Prevents two /finish calls from writing to the same sheet
+ * at exactly the same time.
+ */
+const staffSheetSyncQueues = new Map();
+
+function useGoogleSheets() {
+  return Boolean(
+    process.env.GOOGLE_SHEET_ID?.trim() &&
+    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL?.trim() &&
+    process.env.GOOGLE_PRIVATE_KEY?.trim()
+  );
+}
+
+function getGoogleSheetsClient() {
+  if (!useGoogleSheets()) {
+    return null;
+  }
+
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email:
+        process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL.trim(),
+
+      private_key:
+        process.env.GOOGLE_PRIVATE_KEY
+          .replace(/\\n/g, '\n')
+          .trim(),
+    },
+
+    scopes: [
+      'https://www.googleapis.com/auth/spreadsheets',
+    ],
+  });
+
+  return google.sheets({
+    version: 'v4',
+    auth,
+  });
+}
 
 const BLOCKED_RESERVE_TERMS = new Set([
   'rare',
@@ -185,6 +229,14 @@ const EVENT_SLOT_CONFIG = [
   },
   // add event3 / event4 later if needed
 ];
+
+const PRESERVE_PRETTY_NAMES = new Map([
+  ['non-binary-flag-vivillon', 'Non-Binary Flag Vivillon'],
+  ['mime-jr.', 'Mime Jr.'],
+  ['mr.-mime', 'Mr. Mime'],
+  ['mr.-rime', 'Mr. Rime'],
+  ['type:-null', 'Type: Null'],
+]);
 
 const BASE_SLOT_DEFS = [
   { key: 'rare', label: 'Rare', maxPokemon: 1, type: 'normal' },
@@ -684,6 +736,39 @@ db.prepare(`
   )
 `).run();
 
+migrateStaffActivityEventsTable();
+
+db.prepare(`
+  CREATE INDEX IF NOT EXISTS
+  idx_staff_activity_guild_date
+  ON staff_activity_events (
+    guild_id,
+    created_at
+  )
+`).run();
+
+db.prepare(`
+  CREATE INDEX IF NOT EXISTS
+  idx_staff_activity_user_type
+  ON staff_activity_events (
+    guild_id,
+    user_id,
+    activity_type
+  )
+`).run();
+
+db.prepare(`
+  CREATE UNIQUE INDEX IF NOT EXISTS
+  idx_staff_activity_unique_finish
+  ON staff_activity_events (
+    guild_id,
+    round_number,
+    user_id,
+    activity_type,
+    source
+  )
+`).run();
+
 async function giveTimedRole(guild, userId, roleId) {
   if (!roleId) return;
 
@@ -738,6 +823,12 @@ function getReservePokemonKey(name) {
 }
 
 function formatReserveCommandPokemon(name) {
+	if (PRESERVE_PRETTY_NAMES.has(getReservePokemonKey(name).replace(/ /g, '-'))) {
+	  return PRESERVE_PRETTY_NAMES.get(
+	    getReservePokemonKey(name).replace(/ /g, '-')
+	  );
+	}
+	
   const formatted = formatReserveOutputName(
     String(name || '').trim()
   );
@@ -1040,11 +1131,22 @@ function recordStaffActivity(
   roundNumber,
   userId,
   activityType,
-  createdAt = new Date().toISOString()
+  createdAt = new Date().toISOString(),
+  source = 'finish'
 ) {
-  if (!guildId || !userId) return false;
-  if (!Number.isInteger(Number(roundNumber))) return false;
-  if (!['org', 'resping'].includes(activityType)) return false;
+  if (!guildId || !userId) {
+    return false;
+  }
+
+  if (!Number.isInteger(Number(roundNumber))) {
+    return false;
+  }
+
+  if (
+    !['org', 'resping'].includes(activityType)
+  ) {
+    return false;
+  }
 
   const result = db.prepare(`
     INSERT OR IGNORE INTO staff_activity_events (
@@ -1052,15 +1154,17 @@ function recordStaffActivity(
       round_number,
       user_id,
       activity_type,
-      created_at
+      created_at,
+      source
     )
-    VALUES (?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?)
   `).run(
     guildId,
     Number(roundNumber),
     userId,
     activityType,
-    createdAt
+    createdAt,
+    source
   );
 
   return result.changes > 0;
@@ -2131,8 +2235,7 @@ function addFinishedPokemonCooldowns(guildId) {
       const ffaPokemon = getSlotFfaPokemon(slot);
 
       const groupPokemon = getChoiceGroupByName(slot.choice_group_name)
-        .filter((name) => !ffaPokemon.includes(name))
-        .filter((name) => name !== MISSINGNO_NAME);
+  			.filter((name) => !ffaPokemon.includes(name));
 
       for (const pokemonName of groupPokemon) {
         addPokemonCooldown(guildId, slot.user_id, pokemonName);
@@ -2141,8 +2244,7 @@ function addFinishedPokemonCooldowns(guildId) {
       continue;
     }
 
-    const pokemonList = parsePokemonList(slot.pokemon_names)
-      .filter((name) => name !== MISSINGNO_NAME);
+    const pokemonList = parsePokemonList(slot.pokemon_names);
 
     for (const pokemonName of pokemonList) {
       addPokemonCooldown(guildId, slot.user_id, pokemonName);
@@ -2496,6 +2598,635 @@ function splitEmojiList(input) {
     .trim()
     .split(/\s+/)
     .filter(Boolean);
+}
+
+function migrateStaffActivityEventsTable() {
+  const columns = db.prepare(`
+    PRAGMA table_info(staff_activity_events)
+  `).all();
+
+  if (!columns.length) return;
+
+  const hasIdColumn = columns.some(
+    (column) => column.name === 'id'
+  );
+
+  if (hasIdColumn) {
+    return;
+  }
+
+  console.log(
+    '[staff activity] Migrating activity table to event-log format...'
+  );
+
+  const migrate = db.transaction(() => {
+    db.prepare(`
+      ALTER TABLE staff_activity_events
+      RENAME TO staff_activity_events_old
+    `).run();
+
+    db.prepare(`
+      CREATE TABLE staff_activity_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id TEXT NOT NULL,
+        round_number INTEGER NOT NULL,
+        user_id TEXT NOT NULL,
+        activity_type TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'finish'
+      )
+    `).run();
+
+    db.prepare(`
+      INSERT INTO staff_activity_events (
+        guild_id,
+        round_number,
+        user_id,
+        activity_type,
+        created_at,
+        source
+      )
+      SELECT
+        guild_id,
+        round_number,
+        user_id,
+        activity_type,
+        created_at,
+        'legacy'
+      FROM staff_activity_events_old
+    `).run();
+
+    db.prepare(`
+      DROP TABLE staff_activity_events_old
+    `).run();
+
+    db.prepare(`
+      CREATE INDEX IF NOT EXISTS
+      idx_staff_activity_guild_date
+      ON staff_activity_events (
+        guild_id,
+        created_at
+      )
+    `).run();
+
+    db.prepare(`
+      CREATE INDEX IF NOT EXISTS
+      idx_staff_activity_user_type
+      ON staff_activity_events (
+        guild_id,
+        user_id,
+        activity_type
+      )
+    `).run();
+  });
+
+  migrate();
+
+  console.log(
+    '[staff activity] Migration completed.'
+  );
+}
+
+function quoteGoogleSheetName(name) {
+  return `'${String(name).replace(/'/g, "''")}'`;
+}
+
+function formatSheetDate(isoDate) {
+  if (!isoDate) return '';
+
+  const date = new Date(isoDate);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(isoDate);
+  }
+
+  return new Intl.DateTimeFormat('en-SG', {
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+async function ensureStaffSheetTabs(sheets, spreadsheetId) {
+  const spreadsheet = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties',
+  });
+
+  const existingNames = new Set(
+    (spreadsheet.data.sheets || [])
+      .map((sheet) => sheet.properties?.title)
+      .filter(Boolean)
+  );
+
+  const requests = [];
+
+  if (!existingNames.has(STAFF_SUMMARY_SHEET_NAME)) {
+    requests.push({
+      addSheet: {
+        properties: {
+          title: STAFF_SUMMARY_SHEET_NAME,
+          frozenRowCount: 1,
+        },
+      },
+    });
+  }
+
+  if (!existingNames.has(STAFF_ACTIVITY_LOG_SHEET_NAME)) {
+    requests.push({
+      addSheet: {
+        properties: {
+          title: STAFF_ACTIVITY_LOG_SHEET_NAME,
+          frozenRowCount: 1,
+        },
+      },
+    });
+  }
+
+  if (!requests.length) {
+    return;
+  }
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests,
+    },
+  });
+}
+
+function getAllStaffActivityEvents(guildId) {
+  return db.prepare(`
+    SELECT
+      id,
+      guild_id,
+      round_number,
+      user_id,
+      activity_type,
+      created_at,
+      source
+    FROM staff_activity_events
+    WHERE guild_id = ?
+    ORDER BY
+      datetime(created_at) ASC,
+      id ASC
+  `).all(guildId);
+}
+
+function getStaffSheetSummaryRows(guildId) {
+  return db.prepare(`
+    SELECT
+      user_id,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'org'
+          THEN 1
+          ELSE 0
+        END
+      ) AS total_orgs,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'resping'
+          THEN 1
+          ELSE 0
+        END
+      ) AS total_rp,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'org'
+            AND strftime('%Y-%m', created_at, '+8 hours')
+              = strftime('%Y-%m', 'now', '+8 hours')
+          THEN 1
+          ELSE 0
+        END
+      ) AS current_month_orgs,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'resping'
+            AND strftime('%Y-%m', created_at, '+8 hours')
+              = strftime('%Y-%m', 'now', '+8 hours')
+          THEN 1
+          ELSE 0
+        END
+      ) AS current_month_rp,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'org'
+            AND strftime('%Y-%m', created_at, '+8 hours')
+              = strftime(
+                  '%Y-%m',
+                  datetime(
+                    'now',
+                    '+8 hours',
+                    'start of month',
+                    '-1 month'
+                  )
+                )
+          THEN 1
+          ELSE 0
+        END
+      ) AS previous_month_orgs,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'resping'
+            AND strftime('%Y-%m', created_at, '+8 hours')
+              = strftime(
+                  '%Y-%m',
+                  datetime(
+                    'now',
+                    '+8 hours',
+                    'start of month',
+                    '-1 month'
+                  )
+                )
+          THEN 1
+          ELSE 0
+        END
+      ) AS previous_month_rp,
+
+      MAX(
+        CASE
+          WHEN activity_type = 'org'
+          THEN created_at
+          ELSE NULL
+        END
+      ) AS last_org_at,
+
+      MAX(
+        CASE
+          WHEN activity_type = 'resping'
+          THEN created_at
+          ELSE NULL
+        END
+      ) AS last_rp_at
+
+    FROM staff_activity_events
+    WHERE guild_id = ?
+    GROUP BY user_id
+
+    ORDER BY
+      total_orgs DESC,
+      total_rp DESC,
+      user_id ASC
+  `).all(guildId);
+}
+
+async function getStaffSheetDisplayName(guild, userId) {
+  const member = await guild.members
+    .fetch(userId)
+    .catch(() => null);
+
+  return (
+    member?.displayName ||
+    member?.user?.globalName ||
+    member?.user?.username ||
+    userId
+  );
+}
+
+async function buildStaffSummarySheetValues(guild) {
+  const rows = getStaffSheetSummaryRows(guild.id);
+
+  const output = [
+    [
+      'Discord User ID',
+      'Discord Name',
+      'Total Orgs',
+      'Total Reserve Pings',
+      'Current Month Orgs',
+      'Current Month Reserve Pings',
+      'Previous Month Orgs',
+      'Previous Month Reserve Pings',
+      'Last Org',
+      'Last Reserve Ping',
+    ],
+  ];
+
+  for (const row of rows) {
+    const displayName =
+      await getStaffSheetDisplayName(
+        guild,
+        row.user_id
+      );
+
+    output.push([
+      row.user_id,
+      displayName,
+      Number(row.total_orgs || 0),
+      Number(row.total_rp || 0),
+      Number(row.current_month_orgs || 0),
+      Number(row.current_month_rp || 0),
+      Number(row.previous_month_orgs || 0),
+      Number(row.previous_month_rp || 0),
+      formatSheetDate(row.last_org_at),
+      formatSheetDate(row.last_rp_at),
+    ]);
+  }
+
+  return output;
+}
+
+async function buildStaffActivityLogSheetValues(guild) {
+  const events = getAllStaffActivityEvents(guild.id);
+
+  const displayNameCache = new Map();
+
+  const output = [
+    [
+      'Event ID',
+      'Guild ID',
+      'Round',
+      'Discord User ID',
+      'Discord Name',
+      'Activity',
+      'Date',
+      'Source',
+    ],
+  ];
+
+  for (const event of events) {
+    let displayName =
+      displayNameCache.get(event.user_id);
+
+    if (!displayName) {
+      displayName =
+        await getStaffSheetDisplayName(
+          guild,
+          event.user_id
+        );
+
+      displayNameCache.set(
+        event.user_id,
+        displayName
+      );
+    }
+
+    output.push([
+      event.id,
+      event.guild_id,
+      Number(event.round_number),
+      event.user_id,
+      displayName,
+      event.activity_type === 'org'
+        ? 'Org'
+        : 'Reserve Ping',
+      formatSheetDate(event.created_at),
+      event.source || '',
+    ]);
+  }
+
+  return output;
+}
+
+async function applyStaffSheetFormatting(
+  sheets,
+  spreadsheetId
+) {
+  const spreadsheet = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties',
+  });
+
+  const sheetIdByName = new Map(
+    (spreadsheet.data.sheets || []).map((sheet) => [
+      sheet.properties?.title,
+      sheet.properties?.sheetId,
+    ])
+  );
+
+  const requests = [];
+
+  for (const name of [
+    STAFF_SUMMARY_SHEET_NAME,
+    STAFF_ACTIVITY_LOG_SHEET_NAME,
+  ]) {
+    const sheetId = sheetIdByName.get(name);
+
+    if (sheetId === undefined) {
+      continue;
+    }
+
+    requests.push(
+      {
+        repeatCell: {
+          range: {
+            sheetId,
+            startRowIndex: 0,
+            endRowIndex: 1,
+          },
+          cell: {
+            userEnteredFormat: {
+              textFormat: {
+                bold: true,
+              },
+            },
+          },
+          fields:
+            'userEnteredFormat.textFormat.bold',
+        },
+      },
+      {
+        updateSheetProperties: {
+          properties: {
+            sheetId,
+            gridProperties: {
+              frozenRowCount: 1,
+            },
+          },
+          fields:
+            'gridProperties.frozenRowCount',
+        },
+      },
+      {
+        autoResizeDimensions: {
+          dimensions: {
+            sheetId,
+            dimension: 'COLUMNS',
+            startIndex: 0,
+            endIndex:
+              name === STAFF_SUMMARY_SHEET_NAME
+                ? 10
+                : 8,
+          },
+        },
+      }
+    );
+  }
+
+  if (!requests.length) {
+    return;
+  }
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests,
+    },
+  });
+}
+
+async function syncStaffActivitySheet(guild) {
+  if (!useGoogleSheets()) {
+    return {
+      synced: false,
+      reason: 'not_configured',
+    };
+  }
+
+  const configuredGuildId =
+    process.env.GOOGLE_SHEET_GUILD_ID?.trim();
+
+  if (
+    configuredGuildId &&
+    guild.id !== configuredGuildId
+  ) {
+    return {
+      synced: false,
+      reason: 'different_guild',
+    };
+  }
+
+  const sheets = getGoogleSheetsClient();
+
+  if (!sheets) {
+    return {
+      synced: false,
+      reason: 'client_unavailable',
+    };
+  }
+
+  const spreadsheetId =
+    process.env.GOOGLE_SHEET_ID.trim();
+
+  await ensureStaffSheetTabs(
+    sheets,
+    spreadsheetId
+  );
+
+  const [
+    summaryValues,
+    activityValues,
+  ] = await Promise.all([
+    buildStaffSummarySheetValues(guild),
+    buildStaffActivityLogSheetValues(guild),
+  ]);
+
+  const summaryRange =
+    `${quoteGoogleSheetName(
+      STAFF_SUMMARY_SHEET_NAME
+    )}!A:J`;
+
+  const activityRange =
+    `${quoteGoogleSheetName(
+      STAFF_ACTIVITY_LOG_SHEET_NAME
+    )}!A:H`;
+
+  /*
+   * Clear old values first so rows removed from SQLite
+   * do not remain visible in Google Sheets.
+   */
+  await Promise.all([
+    sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: summaryRange,
+      requestBody: {},
+    }),
+
+    sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: activityRange,
+      requestBody: {},
+    }),
+  ]);
+
+  /*
+   * Write both tabs in one values.batchUpdate request.
+   */
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+
+    requestBody: {
+      valueInputOption: 'RAW',
+
+      data: [
+        {
+          range:
+            `${quoteGoogleSheetName(
+              STAFF_SUMMARY_SHEET_NAME
+            )}!A1`,
+
+          majorDimension: 'ROWS',
+          values: summaryValues,
+        },
+        {
+          range:
+            `${quoteGoogleSheetName(
+              STAFF_ACTIVITY_LOG_SHEET_NAME
+            )}!A1`,
+
+          majorDimension: 'ROWS',
+          values: activityValues,
+        },
+      ],
+    },
+  });
+
+  await applyStaffSheetFormatting(
+    sheets,
+    spreadsheetId
+  );
+
+  console.log(
+    `[staff sheet] Synced ${summaryValues.length - 1} staff member(s) and ` +
+    `${activityValues.length - 1} activity event(s) for guild ${guild.id}.`
+  );
+
+  return {
+    synced: true,
+    staffCount: summaryValues.length - 1,
+    eventCount: activityValues.length - 1,
+  };
+}
+
+function queueStaffActivitySheetSync(guild) {
+  if (!useGoogleSheets()) {
+    return Promise.resolve({
+      synced: false,
+      reason: 'not_configured',
+    });
+  }
+
+  const previous =
+    staffSheetSyncQueues.get(guild.id) ||
+    Promise.resolve();
+
+  const next = previous
+    .catch(() => null)
+    .then(() => syncStaffActivitySheet(guild));
+
+  staffSheetSyncQueues.set(
+    guild.id,
+    next
+  );
+
+  return next.finally(() => {
+    if (
+      staffSheetSyncQueues.get(guild.id) === next
+    ) {
+      staffSheetSyncQueues.delete(guild.id);
+    }
+  });
 }
 
 function getPokemonListForSlot(slot) {
@@ -3570,8 +4301,8 @@ function prettyPokemonName(name) {
     .toLowerCase()
     .replace(/\s+/g, '-');
 
-  if (normalized === 'non-binary-flag-vivillon') {
-    return 'Non-Binary Flag Vivillon';
+  if (PRESERVE_PRETTY_NAMES.has(normalized)) {
+	  return PRESERVE_PRETTY_NAMES.get(normalized);
   }
 
   return String(name)
@@ -4653,12 +5384,32 @@ function buildQueueEmbedFromSlots(slots, options = {}) {
       // Keep the full Vivillon list internally,
       // but shorten how it appears in the queue embed.
       if (slot.slot_key === 'event4') {
-        const owner = slot.user_id
-          ? `<@${slot.user_id}>`
-          : 'Open';
-
-        value = `${owner}\nPride Vivillons`;
-      }
+			  const owner = slot.user_id
+			    ? `<@${slot.user_id}>`
+			    : 'Open';
+			
+			  const fixedPrideNames = new Set(
+			    EVENT_SLOT_CONFIG
+			      .find((config) => config.key === 'event4')
+			      ?.fixedPokemon
+			      ?.split(',')
+			      .map((name) => normalizePokemonName(name))
+			      .filter(Boolean) || []
+			  );
+			
+			  const chosenPokemon = parsePokemonList(slot.pokemon_names)
+			    .filter((name) => !fixedPrideNames.has(normalizePokemonName(name)))
+			    .map((name) =>
+			      prettyPokemonName(formatReserveOutputName(name))
+			    );
+			
+			  value =
+			    `${owner}\n` +
+			    `Pride Vivillons` +
+			    (chosenPokemon.length
+			      ? `\n${chosenPokemon.join(', ')}`
+			      : '');
+			}
 
       embed.addFields({
         name: slot.slot_label,
@@ -5746,6 +6497,18 @@ async function finishQueueAndAnnounce(guild, finishedBy) {
     finishedBy
   );
 
+  /*
+  * Do not block /finish while Google Sheets updates.
+  * SQLite has already saved the activity.
+  */
+  void queueStaffActivitySheetSync(guild)
+    .catch((error) => {
+      console.error(
+        '[staff sheet] Sync failed after /finish:',
+        error
+      );
+    });
+
   const summary = buildSummaryFromCurrentSlots(guild.id);
   saveFinishedHistory(guild.id, summary);
 
@@ -6513,17 +7276,80 @@ const commands = [
     ),
 ].map((command) => command.toJSON());
 
-client.once(Events.ClientReady, () => {
-  console.log(`Logged in as ${client.user.tag}`);
-  setInterval(checkAutoClearCd, 5 * 60 * 1000);
-  checkAutoClearCd();
-  setInterval(() => checkExpiredBuyerRoles(client), 10 * 60 * 1000);
-  checkExpiredBuyerRoles(client);
-});
+client.once(
+  Events.ClientReady,
+  async (readyClient) => {
+    console.log(
+      `Logged in as ${readyClient.user.tag}`
+    );
 
-client.once(Events.ClientReady, (readyClient) => {
-  console.log(`Logged in as ${readyClient.user.tag}`);
-});
+    setInterval(
+      checkAutoClearCd,
+      5 * 60 * 1000
+    );
+
+    checkAutoClearCd();
+
+    setInterval(
+      () =>
+        checkExpiredBuyerRoles(readyClient),
+      10 * 60 * 1000
+    );
+
+    checkExpiredBuyerRoles(readyClient);
+
+    if (!useGoogleSheets()) {
+      console.log(
+        '[staff sheet] Google Sheets is not configured.'
+      );
+
+      return;
+    }
+
+    const configuredGuildId =
+      process.env.GOOGLE_SHEET_GUILD_ID?.trim();
+
+    let guild = null;
+
+    if (configuredGuildId) {
+      guild = await readyClient.guilds
+        .fetch(configuredGuildId)
+        .catch(() => null);
+    } else {
+      /*
+       * Fallback for a bot used in only one server.
+       */
+      guild =
+        readyClient.guilds.cache.first() ||
+        null;
+    }
+
+    if (!guild) {
+      console.error(
+        '[staff sheet] Could not find the configured guild.'
+      );
+
+      return;
+    }
+
+    try {
+      const result =
+        await queueStaffActivitySheetSync(guild);
+
+      if (result.synced) {
+        console.log(
+          `[staff sheet] Initial SQLite upload complete: ` +
+          `${result.eventCount} event(s).`
+        );
+      }
+    } catch (error) {
+      console.error(
+        '[staff sheet] Initial SQLite upload failed:',
+        error
+      );
+    }
+  }
+);
 
 client.on('shardDisconnect', (event, shardId) => {
   console.error(`[Discord] Shard ${shardId} disconnected`, event);
