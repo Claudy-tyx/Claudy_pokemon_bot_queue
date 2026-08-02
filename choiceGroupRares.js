@@ -52,7 +52,7 @@ const CHOICE_GROUP_RARES = {
 
   lils: [
     'pheromosa',
-    'sneasler,,
+    'sneasler',
     'tapu fini'
   ],
 
