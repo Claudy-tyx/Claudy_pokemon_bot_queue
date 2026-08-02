@@ -822,6 +822,38 @@ function getReservePokemonKey(name) {
     .replace(/\s+/g, ' ');
 }
 
+function fixSpecialReserveName(name) {
+  const text = String(name || '').trim();
+
+  const normalized = text
+    .toLowerCase()
+    .replace(/[-_\s]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (normalized === 'non binary flag vivillon') {
+    return 'Non-Binary Flag Vivillon';
+  }
+
+  if (normalized === 'mime jr.') {
+    return 'Mime Jr.';
+  }
+
+  if (normalized === 'mr. mime') {
+    return 'Mr. Mime';
+  }
+
+  if (normalized === 'mr. rime') {
+    return 'Mr. Rime';
+  }
+
+  if (normalized === 'type: null') {
+    return 'Type: Null';
+  }
+
+  return text;
+}
+
 function formatReserveCommandPokemon(name) {
 	if (PRESERVE_PRETTY_NAMES.has(getReservePokemonKey(name).replace(/ /g, '-'))) {
 	  return PRESERVE_PRETTY_NAMES.get(
@@ -1536,12 +1568,13 @@ function getReservePingEntries(summary) {
 
     let finalDisplayName = prettyPokemonName(displayName);
 
-    if (
-      finalDisplayName.toLowerCase() ===
-      'non binary flag vivillon'
-    ) {
-      finalDisplayName = 'Non-Binary Flag Vivillon';
-    }
+    const finalDisplayName = fixSpecialReserveName(
+      prettyPokemonName(displayName)
+    );
+
+    pokemonByUser
+      .get(userId)
+      .add(finalDisplayName);
 
     pokemonByUser
       .get(userId)
@@ -7605,7 +7638,9 @@ client.on('messageCreate', async (message) => {
         for (const entry of entries) {
           if (!entry.pokemon.length) continue;
 
-          const pokemonList = entry.pokemon.join(', ');
+          const pokemonList = entry.pokemon
+            .map(fixSpecialReserveName)
+            .join(', ');
 
           await sendReserveBotCommand(
             reserveChannel,
