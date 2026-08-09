@@ -176,7 +176,7 @@ const MONITORED_CHANNELS = [
 
 const EPHEMERAL = 64;
 
-const EVENT_QUEUE_ENABLED = true;
+const EVENT_QUEUE_ENABLED = false;
 
 // @Proud Amsterdammer Pyroar @Proud Paulistano Luxray @Proud New Yorker Braviary @Pride Flag Vivillon@Proud Taipeier Ursaring @Proud Sydneysider Komala
 const EVENT_SLOT_CONFIG = [
@@ -243,8 +243,8 @@ const BASE_SLOT_DEFS = [
   { key: 'regional', label: 'Regionals', maxPokemon: 1, type: 'normal' },
   { key: 'gmax', label: 'Gmax', maxPokemon: 1, type: 'normal' },
   { key: 'eevos', label: 'Eevees', maxPokemon: 1, type: 'normal' },
-  { key: 'choice1', label: 'Choice1', maxPokemon: 0, type: 'choice' },
-  { key: 'choice2', label: 'Choice2', maxPokemon: 0, type: 'choice' },
+  { key: 'choice1', label: 'Choice1', maxPokemon: 1, type: 'choice' },
+  { key: 'choice2', label: 'Choice2', maxPokemon: 1, type: 'choice' },
   { key: 'res1', label: '1Res A', maxPokemon: 1, type: 'normal' },
   { key: 'res2', label: '1Res B', maxPokemon: 1, type: 'normal' },
   { key: 'res3', label: '1Res C', maxPokemon: 1, type: 'normal' },
