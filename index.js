@@ -76,6 +76,7 @@ const pendingReserveCommandUsers = new Map();
 const RESERVE_ERROR_TRACKING_MS = 2 * 60 * 1000;
 const STAFF_SUMMARY_SHEET_NAME = 'Staff Summary';
 const STAFF_ACTIVITY_LOG_SHEET_NAME = 'Activity Log';
+const STAFF_ARCHIVED_SHEET_NAME = 'Archived Staff';
 
 /*
  * Prevents two /finish calls from writing to the same sheet
@@ -248,7 +249,7 @@ const BASE_SLOT_DEFS = [
   { key: 'res1', label: '1Res A', maxPokemon: 1, type: 'normal' },
   { key: 'res2', label: '1Res B', maxPokemon: 1, type: 'normal' },
   { key: 'res3', label: '1Res C', maxPokemon: 1, type: 'normal' },
-  { key: 'res4', label: '1Res D', maxPokemon: 1, type: 'normal' },
+  //{ key: 'res4', label: '1Res D', maxPokemon: 1, type: 'normal' },
   //{ key: 'res5', label: '1Res E', maxPokemon: 1, type: 'normal' },
   //{ key: 'res6', label: '1Res F', maxPokemon: 1, type: 'normal' },
   { key: 'res7', label: '2Res GH', maxPokemon: 2, type: 'normal' },
@@ -394,6 +395,19 @@ const ALL_FORM_POKEMON = new Set([
   'tangrowth',
   'ditto',
 ]);
+
+const EEVEE_FAMILY = [
+  'normal eevee',
+  'partner eevee',
+  'vaporeon',
+  'jolteon',
+  'flareon',
+  'espeon',
+  'umbreon',
+  'leafeon',
+  'glaceon',
+  'sylveon',
+];
 
 const REGIONAL_FORM_BASE_POKEMON = new Set([
   'ninetales',
@@ -675,6 +689,16 @@ db.prepare(`
 `).run();
 
 db.prepare(`
+  CREATE TABLE IF NOT EXISTS staff_archived (
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    archived_at TEXT NOT NULL,
+    archived_by TEXT NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  )
+`).run();
+
+db.prepare(`
   CREATE TABLE IF NOT EXISTS announcement_active_template (
     guild_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -735,6 +759,71 @@ db.prepare(`
     source
   )
 `).run();
+
+function isStaffArchived(guildId, userId) {
+  const row = db.prepare(`
+    SELECT 1
+    FROM staff_archived
+    WHERE guild_id = ?
+      AND user_id = ?
+  `).get(guildId, userId);
+
+  return !!row;
+}
+
+function archiveStaffMember(guildId, userId, archivedBy) {
+  const hasActivity = db.prepare(`
+    SELECT 1
+    FROM staff_activity_events
+    WHERE guild_id = ?
+      AND user_id = ?
+    LIMIT 1
+  `).get(guildId, userId);
+
+  if (!hasActivity) {
+    return {
+      success: false,
+      reason: 'no_activity',
+    };
+  }
+
+  if (isStaffArchived(guildId, userId)) {
+    return {
+      success: false,
+      reason: 'already_archived',
+    };
+  }
+
+  db.prepare(`
+    INSERT INTO staff_archived (
+      guild_id,
+      user_id,
+      archived_at,
+      archived_by
+    )
+    VALUES (?, ?, ?, ?)
+  `).run(
+    guildId,
+    userId,
+    new Date().toISOString(),
+    archivedBy
+  );
+
+  return {
+    success: true,
+    reason: 'ok',
+  };
+}
+
+function unarchiveStaffMember(guildId, userId) {
+  const result = db.prepare(`
+    DELETE FROM staff_archived
+    WHERE guild_id = ?
+      AND user_id = ?
+  `).run(guildId, userId);
+
+  return result.changes > 0;
+}
 
 async function giveTimedRole(guild, userId, roleId) {
   if (!roleId) return;
@@ -2725,6 +2814,19 @@ async function ensureStaffSheetTabs(sheets, spreadsheetId) {
 
   const requests = [];
 
+  if (!existingNames.has(STAFF_ARCHIVED_SHEET_NAME)) {
+    requests.push({
+      addSheet: {
+        properties: {
+          title: STAFF_ARCHIVED_SHEET_NAME,
+          gridProperties: {
+            frozenRowCount: 1,
+          },
+        },
+      },
+    });
+  }
+
   if (!existingNames.has(STAFF_SUMMARY_SHEET_NAME)) {
     requests.push({
       addSheet: {
@@ -2761,23 +2863,33 @@ async function ensureStaffSheetTabs(sheets, spreadsheetId) {
       requests,
     },
   });
+  
 }
 
 function getAllStaffActivityEvents(guildId) {
   return db.prepare(`
     SELECT
-      id,
-      guild_id,
-      round_number,
-      user_id,
-      activity_type,
-      created_at,
-      source
-    FROM staff_activity_events
-    WHERE guild_id = ?
+      e.id,
+      e.guild_id,
+      e.round_number,
+      e.user_id,
+      e.activity_type,
+      e.created_at,
+      e.source
+
+    FROM staff_activity_events AS e
+
+    WHERE e.guild_id = ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM staff_archived AS a
+        WHERE a.guild_id = e.guild_id
+          AND a.user_id = e.user_id
+      )
+
     ORDER BY
-      datetime(created_at) ASC,
-      id ASC
+      datetime(e.created_at) DESC,
+      e.id DESC
   `).all(guildId);
 }
 
@@ -2874,8 +2986,14 @@ function getStaffSheetSummaryRows(guildId) {
         END
       ) AS last_rp_at
 
-    FROM staff_activity_events
-    WHERE guild_id = ?
+    FROM staff_activity_events AS e
+    WHERE e.guild_id = ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM staff_archived AS a
+        WHERE a.guild_id = e.guild_id
+          AND a.user_id = e.user_id
+      )
     GROUP BY user_id
 
     ORDER BY
@@ -2883,6 +3001,118 @@ function getStaffSheetSummaryRows(guildId) {
       total_rp DESC,
       user_id ASC
   `).all(guildId);
+}
+
+function getArchivedStaffSheetRows(guildId) {
+  return db.prepare(`
+    SELECT
+      a.user_id,
+
+      SUM(
+        CASE
+          WHEN e.activity_type = 'org'
+          THEN 1
+          ELSE 0
+        END
+      ) AS total_orgs,
+
+      SUM(
+        CASE
+          WHEN e.activity_type = 'resping'
+          THEN 1
+          ELSE 0
+        END
+      ) AS total_rp,
+
+      MAX(
+        CASE
+          WHEN e.activity_type = 'org'
+          THEN e.created_at
+          ELSE NULL
+        END
+      ) AS last_org_at,
+
+      MAX(
+        CASE
+          WHEN e.activity_type = 'resping'
+          THEN e.created_at
+          ELSE NULL
+        END
+      ) AS last_rp_at,
+
+      a.archived_at,
+      a.archived_by
+
+    FROM staff_archived AS a
+
+    LEFT JOIN staff_activity_events AS e
+      ON e.guild_id = a.guild_id
+      AND e.user_id = a.user_id
+
+    WHERE a.guild_id = ?
+
+    GROUP BY
+      a.user_id,
+      a.archived_at,
+      a.archived_by
+
+    ORDER BY
+      datetime(a.archived_at) DESC
+  `).all(guildId);
+}
+
+async function buildArchivedStaffSheetValues(guild) {
+  const rows = getArchivedStaffSheetRows(guild.id);
+
+  const output = [
+    [
+      'Discord User ID',
+      'Discord Name',
+      'Total Orgs',
+      'Total Reserve Pings',
+      'Last Org',
+      'Last Reserve Ping',
+      'Archived At',
+      'Archived By',
+    ],
+  ];
+
+  const displayNameCache = new Map();
+
+  async function getCachedName(userId) {
+    if (displayNameCache.has(userId)) {
+      return displayNameCache.get(userId);
+    }
+
+    const name = await getStaffSheetDisplayName(
+      guild,
+      userId
+    );
+
+    displayNameCache.set(userId, name);
+    return name;
+  }
+
+  for (const row of rows) {
+    const displayName =
+      await getCachedName(row.user_id);
+
+    const archivedByName =
+      await getCachedName(row.archived_by);
+
+    output.push([
+      row.user_id,
+      displayName,
+      Number(row.total_orgs || 0),
+      Number(row.total_rp || 0),
+      formatSheetDate(row.last_org_at),
+      formatSheetDate(row.last_rp_at),
+      formatSheetDate(row.archived_at),
+      archivedByName,
+    ]);
+  }
+
+  return output;
 }
 
 async function getStaffSheetDisplayName(guild, userId) {
@@ -3013,6 +3243,7 @@ async function applyStaffSheetFormatting(
   for (const name of [
     STAFF_SUMMARY_SHEET_NAME,
     STAFF_ACTIVITY_LOG_SHEET_NAME,
+    STAFF_ARCHIVED_SHEET_NAME,
   ]) {
     const sheetId = sheetIdByName.get(name);
 
@@ -3120,9 +3351,11 @@ async function syncStaffActivitySheet(guild) {
   const [
     summaryValues,
     activityValues,
+    archivedValues,
   ] = await Promise.all([
     buildStaffSummarySheetValues(guild),
     buildStaffActivityLogSheetValues(guild),
+    buildArchivedStaffSheetValues(guild),
   ]);
 
   const summaryRange =
@@ -3133,6 +3366,11 @@ async function syncStaffActivitySheet(guild) {
   const activityRange =
     `${quoteGoogleSheetName(
       STAFF_ACTIVITY_LOG_SHEET_NAME
+    )}!A:H`;
+
+  const archivedRange =
+    `${quoteGoogleSheetName(
+      STAFF_ARCHIVED_SHEET_NAME
     )}!A:H`;
 
   /*
@@ -3149,6 +3387,12 @@ async function syncStaffActivitySheet(guild) {
     sheets.spreadsheets.values.clear({
       spreadsheetId,
       range: activityRange,
+      requestBody: {},
+    }),
+
+    sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: archivedRange,
       requestBody: {},
     }),
   ]);
@@ -3180,6 +3424,15 @@ async function syncStaffActivitySheet(guild) {
 
           majorDimension: 'ROWS',
           values: activityValues,
+        },
+        {
+          range:
+            `${quoteGoogleSheetName(
+              STAFF_ARCHIVED_SHEET_NAME
+            )}!A1`,
+
+          majorDimension: 'ROWS',
+          values: archivedValues,
         },
       ],
     },
@@ -5471,8 +5724,14 @@ function getStaffTotalActivityRows(guildId) {
         END
       ) AS total_rp
 
-    FROM staff_activity_events
-    WHERE guild_id = ?
+    FROM staff_activity_events AS e
+    WHERE e.guild_id = ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM staff_archived AS a
+        WHERE a.guild_id = e.guild_id
+          AND a.user_id = e.user_id
+      )
 
     GROUP BY user_id
 
@@ -5534,8 +5793,14 @@ function getStaffMonthlyActivityRows(guildId) {
         END
       ) AS previous_rp
 
-    FROM staff_activity_events
-    WHERE guild_id = ?
+    FROM staff_activity_events AS e
+    WHERE e.guild_id = ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM staff_archived AS a
+        WHERE a.guild_id = e.guild_id
+          AND a.user_id = e.user_id
+      )
 
     GROUP BY user_id
 
@@ -5569,8 +5834,14 @@ function getStaffLatestActivityRows(guildId) {
         END
       ) AS last_rp_at
 
-    FROM staff_activity_events
-    WHERE guild_id = ?
+    FROM staff_activity_events AS e
+    WHERE e.guild_id = ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM staff_archived AS a
+        WHERE a.guild_id = e.guild_id
+          AND a.user_id = e.user_id
+      )
 
     GROUP BY user_id
   `).all(guildId);
@@ -6072,6 +6343,11 @@ function getOpenButtonStyle(slotKey, boosterLocked = true) {
 
 function getFinishedSlotOwnedPokemon(slotSnapshot) {
   const names = [];
+  if (slotSnapshot.slot_key === 'eevos') {
+    for (const pokemonName of EEVEE_FAMILY) {
+      names.push(normalizePokemonName(pokemonName));
+    }
+  }
 
   if (isEventSlot(slotSnapshot.slot_key)) {
     const fixedPokemon = getEventFixedPokemon(slotSnapshot.slot_key);
@@ -6695,6 +6971,26 @@ const commands = [
     .setDescription('Find which groups a Pokémon belongs to.')
     .addStringOption(o =>
       o.setName('pokemon').setDescription('Pokemon name').setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('archivestaff')
+    .setDescription('Archive a former staff member from active org counts.')
+    .addUserOption((option) =>
+      option
+        .setName('user')
+        .setDescription('Staff member to archive.')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('unarchivestaff')
+    .setDescription('Restore an archived staff member to active org counts.')
+    .addUserOption((option) =>
+      option
+        .setName('user')
+        .setDescription('Archived staff member to restore.')
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
@@ -8066,7 +8362,113 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
 
-      
+      if (interaction.commandName === 'archivestaff') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use this command.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const target =
+          interaction.options.getUser('user', true);
+
+        await interaction.deferReply({
+          flags: EPHEMERAL,
+        });
+
+        const result = archiveStaffMember(
+          guild.id,
+          target.id,
+          interaction.user.id
+        );
+
+        if (!result.success) {
+          if (result.reason === 'already_archived') {
+            return interaction.editReply({
+              content: `${target.username} is already archived.`,
+            });
+          }
+
+          if (result.reason === 'no_activity') {
+            return interaction.editReply({
+              content:
+                `${target.username} has no recorded org/reserve-ping activity to archive.`,
+            });
+          }
+
+          return interaction.editReply({
+            content: 'Could not archive that staff member.',
+          });
+        }
+
+        try {
+          await queueStaffActivitySheetSync(guild);
+        } catch (error) {
+          console.error(
+            '[staff archive] Sheet sync failed:',
+            error
+          );
+
+          return interaction.editReply({
+            content:
+              `${target.username} was archived in SQLite, ` +
+              `but the Google Sheet sync failed. It will correct itself on the next sync.`,
+          });
+        }
+
+        return interaction.editReply({
+          content:
+            `${target.username} has been archived. Their history was preserved and removed from active org counts.`,
+        });
+      }
+
+      if (interaction.commandName === 'unarchivestaff') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use this command.',
+            flags: EPHEMERAL,
+          });
+        }
+
+        const target =
+          interaction.options.getUser('user', true);
+
+        await interaction.deferReply({
+          flags: EPHEMERAL,
+        });
+
+        const restored = unarchiveStaffMember(
+          guild.id,
+          target.id
+        );
+
+        if (!restored) {
+          return interaction.editReply({
+            content: `${target.username} is not archived.`,
+          });
+        }
+
+        try {
+          await queueStaffActivitySheetSync(guild);
+        } catch (error) {
+          console.error(
+            '[staff archive] Sheet sync failed after restore:',
+            error
+          );
+
+          return interaction.editReply({
+            content:
+              `${target.username} was restored in SQLite, ` +
+              `but the Google Sheet sync failed. It will correct itself on the next sync.`,
+          });
+        }
+
+        return interaction.editReply({
+          content:
+            `${target.username} has been restored to active staff counts.`,
+        });
+      }
 
       if (interaction.commandName === 'sponsortoggle') {
         if (!hasStaffRole(interaction.member)) {
@@ -10027,15 +10429,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             content:
               `${openBuyerRoleIds.map((roleId) => mentionRole(roleId)).join(' ')} Eevee org time <3 <:7_:1496851121342513344>\n\n` +
               `**Commands:**\n` +
-              `- <a:19:1496863760579563681> Use **/pick** for reserves.\n` +
-              `- <a:16:1496863754342891662> Use **/choosegroup** for choice slots.\n` +
-              `- <a:18:1496863758826475590> Use **/chooserare** for Choice and Gmax rare.\n` +
-              `- <a:21:1496863774211051580> Use **/clearres** to remove one chosen reserve.\n` +
-              `- <a:20:1496863771900116994> Use **/clearallres** to remove all reserves chosen so far.\n` +
-              `- <a:22:1496863775867801650> Use **/setffa** for Choice ffa.\n` +
-              `- <a:23:1496863777973604532> Use **/withdraw** to release your slot.\n` +
-              `- <a:24:1496863780532125806> Use **/transfer** to give your claimed group to someone else.\n` +
-              `- <a:2_:1496851133019328662> Use **/addnote** to add a note to your slot.\n` +
+              `- <a:2_:1496851133019328662> <a:19:1496863760579563681> <a:16:1496863754342891662> <a:18:1496863758826475590> <a:21:1496863774211051580> <a:20:1496863771900116994> <a:22:1496863775867801650> <a:23:1496863777973604532> <a:24:1496863780532125806> \n` +
               `Eevee loves everyone so head to <#${buyerChannelId}> to run commands <a:5_:1496851126996307999> ~ ~`,
             allowedMentions: {
               roles: openBuyerRoleIds,
