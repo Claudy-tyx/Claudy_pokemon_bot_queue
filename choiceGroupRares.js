@@ -122,7 +122,7 @@ const CHOICE_GROUP_RARES = {
   ],
 
   gold: [
-    'hisuian decidueye',
+    'hisuian electrode',
     'dialga',
     'latios',
     'registeel',
