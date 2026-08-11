@@ -121,8 +121,8 @@ const CHOICE_GROUP_RARES = {
     'magearna',
   ],
 
-  gold: [
-    'hisuian electrode',
+  green: [
+    'hisuian decidueye',
     'dialga',
     'latios',
     'registeel',
@@ -132,6 +132,12 @@ const CHOICE_GROUP_RARES = {
     'alolan geodude',
     'raikou',
     'uxie',
+  ],
+
+  gold: [
+    'hisuian electrode',
+    'zapdos',
+    'ho-oh',
   ],
 
   white: [
