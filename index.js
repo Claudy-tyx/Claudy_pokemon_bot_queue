@@ -342,40 +342,6 @@ const FIXED_REMOVE_TAIL = [
   'Regional',
   'Gmax',
   'Paradox',
-
-  // Pride event Pokémon
-  'Proud Amsterdammer Pyroar',
-  'Proud Paulistano Luxray',
-  'Proud New Yorker Braviary',
-  'Proud Taipeier Ursaring',
-  'Proud Sydneysider Komala',
-
-  // Pride Flag Vivillon forms
-  'Alloace Flag Vivillon',
-  'Androgyne Flag Vivillon',
-  'Androsexual Flag Vivillon',
-  'Aroace Flag Vivillon',
-  'Aromantic Flag Vivillon',
-  'Asexual Flag Vivillon',
-  'Autoromantic Flag Vivillon',
-  'Bisexual Flag Vivillon',
-  'Demiromantic Flag Vivillon',
-  'Demisexual Flag Vivillon',
-  'Desinoromantic Flag Vivillon',
-  'Gay Flag Vivillon',
-  'Gender Creative Flag Vivillon',
-  'Genderfluid Flag Vivillon',
-  'Genderqueer Flag Vivillon',
-  'Gynsexual Flag Vivillon',
-  'Lesbian Flag Vivillon',
-  'Maverique Flag Vivillon',
-  'Neutrois Flag Vivillon',
-  'Non-Binary Flag Vivillon',
-  'Pansexual Flag Vivillon',
-  'Polysexual Flag Vivillon',
-  'Pride Flag Vivillon',
-  'Queer Flag Vivillon',
-  'Transgender Flag Vivillon',
 ];
 
 const ALL_FORM_POKEMON = new Set([
@@ -426,6 +392,7 @@ const ALL_FORM_POKEMON = new Set([
   'smeargle',
   'greedent',
   'tangrowth',
+  'ditto',
 ]);
 
 const REGIONAL_FORM_BASE_POKEMON = new Set([
