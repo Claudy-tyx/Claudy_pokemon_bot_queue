@@ -963,7 +963,6 @@ const ODD_STEAL_PRICES = {
   "slurpuff": 10000,
   "smeargle": 10000,
   "smoochum": 10000,
-  "snorlax": 10000,
   "snowy-castform": 10000,
   "solrock": 10000,
   "spinda": 10000,
