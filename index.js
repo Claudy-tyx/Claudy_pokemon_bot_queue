@@ -7926,6 +7926,11 @@ client.on('messageCreate', async (message) => {
             `n!r add ${pokemonList} <@${entry.userId}>`
           );
 
+          await sendReserveBotCommand(
+            reserveChannel,
+            `c!r add ${pokemonList} <@${entry.userId}>`
+          );
+
           await sleep(RESERVE_COMMAND_DELAY_MS);
         }
 
@@ -8005,6 +8010,11 @@ client.on('messageCreate', async (message) => {
               `n!r add ${pokemon.join(', ')} <@${entry.userId}>`
             );
 
+            await sendReserveBotCommand(
+              message.channel,
+              `c!r add ${pokemon.join(', ')} <@${entry.userId}>`
+            );
+
             await sleep(RESERVE_COMMAND_DELAY_MS);
           }
 
@@ -8041,6 +8051,19 @@ client.on('messageCreate', async (message) => {
             message.channel,
             `n!r add ${pokemonList} <@${entry.userId}>`
           );
+
+          await sendReserveBotCommand(
+            message.channel,
+            `c!r remove ${pokemonList}`
+          );
+
+          await sleep(RESERVE_COMMAND_DELAY_MS);
+
+          await sendReserveBotCommand(
+            message.channel,
+            `c!r add ${pokemonList} <@${entry.userId}>`
+          );
+          
 
           await sleep(RESERVE_COMMAND_DELAY_MS);
         }
@@ -8094,6 +8117,11 @@ client.on('messageCreate', async (message) => {
           `n!r add ${uniquePokemon.join(', ')} <@${targetUserId}>`
         );
 
+        await sendReserveBotCommand(
+          message.channel,
+          `c!r add ${uniquePokemon.join(', ')} <@${targetUserId}>`
+        );
+
         return;
       }
 
@@ -8126,6 +8154,11 @@ client.on('messageCreate', async (message) => {
           `n!r remove ${uniquePokemon.join(', ')}`
         );
 
+        await sendReserveBotCommand(
+          message.channel,
+          `c!r remove ${uniquePokemon.join(', ')}`
+        );
+
         return;
       }
 
@@ -8148,6 +8181,11 @@ client.on('messageCreate', async (message) => {
         await sendReserveBotCommand(
           message.channel,
           `n!r clear <@${targetUserId}>`
+        );
+
+        await sendReserveBotCommand(
+          message.channel,
+          `c!r clear <@${targetUserId}>`
         );
 
         return;
@@ -8233,7 +8271,7 @@ client.on('messageCreate', async (message) => {
 
       '!barn',
       'go touch grass <a:3_:1496851131085754438>',
-      'These colours don\'t seem unusual... <:rrshine:1356468409474486425>',
+      'These colours don\'t seem unusual... <a:rrshine:1356468409474486425>',
       'eevee sees a 4k chain from you soon <:15:1496852948293128202>',
       'Eevee says you should lighten up <:15:1496852948293128202>',
 
