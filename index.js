@@ -25,6 +25,10 @@ function profileCollection(guildId) {
   return firestore.collection('guilds').doc(guildId).collection('buyer_profiles');
 }
 
+function orgProfileCollection(guildId) {
+  return firestore.collection('guilds').doc(guildId).collection('org_profiles');
+}
+
 function linkCollection(guildId) {
   return firestore.collection('guilds').doc(guildId).collection('buyer_profile_links');
 }
@@ -566,6 +570,20 @@ CREATE TABLE IF NOT EXISTS buyer_profiles (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (guild_id, profile_id)
 );
+
+CREATE TABLE IF NOT EXISTS org_profiles (
+  guild_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  display_user_id TEXT NOT NULL,
+  total_orgs INTEGER NOT NULL DEFAULT 0,
+  last_org TEXT NOT NULL DEFAULT 'never',
+  total_reservers INTEGER NOT NULL DEFAULT 0,
+  last_reserver TEXT NOT NULL DEFAULT 'never',
+  status TEXT NOT NULL DEFAULT 'no status set',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (guild_id, profile_id)
+  );
 
 CREATE TABLE IF NOT EXISTS buyer_awarded_rounds (
   guild_id TEXT NOT NULL,
@@ -1258,7 +1276,7 @@ function recordStaffActivity(
   return result.changes > 0;
 }
 
-function recordFinishedRoundStaffActivity(guildId, roundNumber, finishedBy) {
+async function recordFinishedRoundStaffActivity(guildId, roundNumber, finishedBy) {
   const now = new Date().toISOString();
 
   // The person who successfully ran /finish receives the org count.
@@ -1269,9 +1287,11 @@ function recordFinishedRoundStaffActivity(guildId, roundNumber, finishedBy) {
     'org',
     now
   );
+  await awardOrgProfileForOrgOrReserve(guild.id, finishedBy, 'org');
 
   // The current holder of the reserver slot receives the RP count.
   const reserverSlot = getSlot(guildId, 'reserver');
+  await awardOrgProfileForOrgOrReserve(guild.id, reserverSlot.user_id, 'reserver');
 
   if (reserverSlot?.user_id) {
     recordStaffActivity(
@@ -1982,6 +2002,180 @@ async function getBuyerProfile(guildId, userId) {
   return doc.exists
     ? doc.data()
     : null;
+}
+
+async function ensureOrgProfile(guildId, userId) {
+  const profileId = await getProfileIdForUser(
+      guildId,
+      userId
+  );
+
+  const now = new Date().toISOString();
+
+  if (!useFirebaseProfiles()) {
+    db.prepare(`
+      INSERT OR IGNORE INTO org_profiles
+      (guild_id, profile_id, display_user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+        guildId,
+        profileId,
+        profileId,
+        now,
+        now
+    );
+
+    return profileId;
+  }
+
+  const ref = orgProfileCollection(guildId).doc(profileId);
+
+  const snapshot = await ref.get();
+
+  if (!snapshot.exists) {
+    await ref.set({
+      profile_id: profileId,
+      display_user_id: profileId,
+      total_orgs: 0,
+      last_org: "never",
+      total_reservers: 0,
+      last_reserver: "never",
+      status: "no status set",
+      created_at: now,
+      updated_at: now,
+    });
+  }
+
+  return profileId;
+}
+
+async function awardOrgProfileForOrgOrReserve(guildId, userId, slotKey) {
+  const profileId = await ensureOrgProfile(guildId, userId);
+  const now = new Date().toISOString();
+
+  const org = slotKey === 'org';
+  const res = slotKey === 'reserver';
+
+
+  if (!useFirebaseProfiles()) {
+    if (org) {
+      db.prepare(`
+        UPDATE org_profiles
+        SET total_orgs = total_orgs + 1,
+            last_org   = ?,
+            updated_at = ?
+        WHERE guild_id = ?
+          AND profile_id = ?
+      `).run(
+          now,
+          now,
+          guildId,
+          profileId
+      );
+    }
+    if (res) {
+      db.prepare(`
+        UPDATE org_profiles
+        SET total_reservers = total_reservers + 1,
+            last_reserver   = ?,
+            updated_at      = ?
+        WHERE guild_id = ?
+          AND profile_id = ?
+      `).run(
+          now,
+          now,
+          guildId,
+          profileId
+      );
+    }
+  }
+
+
+  const ref = orgProfileCollection(guildId).doc(profileId);
+
+  await firestore.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.data() || {};
+
+    if(org){
+      tx.set(ref, {
+        total_orgs: (data.total_orgs || 0) + 1,
+        last_org: now,
+        updated_at: now,
+      }, { merge: true });
+    }
+    if(res){
+      tx.set(ref, {
+        total_reservers: (data.total_reservers || 0) + 1,
+        last_reserver: now,
+        updated_at: now,
+      }, { merge: true });
+    }
+  });
+}
+
+
+async function getOrgProfile(guildId, userId) {
+  const profileId = await getProfileIdForUser(
+      guildId,
+      userId
+  );
+
+  if (!useFirebaseProfiles()) {
+    return db.prepare(`
+      SELECT *
+      FROM org_profiles
+      WHERE guild_id = ?
+        AND profile_id = ?
+    `).get(guildId, profileId);
+  }
+
+  const doc = await orgProfileCollection(guildId)
+      .doc(profileId)
+      .get();
+
+  return doc.exists
+      ? doc.data()
+      : null;
+}
+
+
+async function addOrgStatus(guildId, userId, noteText) {
+  const profileId = await ensureOrgProfile(guildId, userId);
+  let trimmedNote = noteText.trim();
+
+  if (!trimmedNote.length) {
+    trimmedNote = "no status set"
+  }
+
+  if (trimmedNote.length > MAX_NOTE_LENGTH) {
+    return { ok: false, reason: 'note_too_long' };
+  }
+
+  if (!useFirebaseProfiles()) {
+    db.prepare(`
+      UPDATE org_profiles
+      SET status     = ?,
+          updated_at = ?
+      WHERE guild_id = ?
+        AND profile_id = ?
+    `).run(
+        trimmedNote,
+        now,
+        guildId,
+        profileId
+    );
+  }
+
+  const ref = orgProfileCollection(guildId).doc(profileId);
+
+  await firestore.runTransaction(async (tx) => {
+    tx.set(ref, {
+      status: trimmedNote,
+      updated_at: now,
+    }, { merge: true });
+    return { ok: true };
+  });
 }
 
 async function getLinkedAlts(guildId, profileId) {
@@ -7150,6 +7344,26 @@ const commands = [
     ),
 
   new SlashCommandBuilder()
+    .setName('orgprofile')
+    .setDescription('View organizer profile.')
+    .addUserOption(option =>
+        option
+            .setName('user')
+            .setDescription('User to view')
+            .setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+      .setName('addstatus')
+      .setDescription('Set status of an org. Max 70 characters.')
+      .addUserOption(option =>
+              option
+                  .setName('user')
+                  .setDescription('User to add note to')
+                  .setRequired(false)
+      .addStringOption((option) => option.setName('note').setDescription('Short note').setRequired(true)),
+
+  new SlashCommandBuilder()
     .setName('removeresult')
     .setDescription('Remove Pokémon from a user after finish')
     .addUserOption(option =>
@@ -8822,6 +9036,98 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.editReply({
           embeds: [embed],
+        });
+      }
+
+      if (interaction.commandName === 'orgprofile') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use this command.',
+            flags: EPHEMERAL,
+          });
+        }
+        await interaction.deferReply();
+        const targetUser = interaction.options.getUser('user') || interaction.user;
+
+        const profileId = await getProfileIdForUser(guild.id, targetUser.id);
+        const mainText = `<@${profileId}>`;
+        const profile = await getOrgProfile(guild.id, targetUser.id);
+
+        if (!profile) {
+          return interaction.editReply({
+            content: `<@${targetUser.id}> does not have an org profile yet.`,
+
+          });
+        }
+
+        const linkedAlts = (await getLinkedAlts(guild.id, profileId))
+            .map((row) => `<@${row.user_id}>`)
+            .join(', ') || 'None';
+
+        const embed = new EmbedBuilder()
+            .setTitle(`${targetUser.username}'s Organizer Profile`)
+            .setColor(0xB6FFD8)
+            .addFields(
+                { name: 'Total Orgs', value: String(profile.total_orgs), inline: true },
+                { name: 'Last Org', value: String(profile.last_org), inline: true },
+                { name: 'Total Reservers', value: String(profile.total_reservers), inline: true },
+                { name: 'Last Reserver', value: String(profile.last_reserver), inline: true },
+                { name: 'Status', value: String(profile.status), inline: true },
+                { name: 'Main Profile', value: mainText, inline: false },
+                { name: 'Linked Alts', value: linkedAlts, inline: false }
+            )
+            .setTimestamp();
+
+        return interaction.editReply({
+          embeds: [embed],
+        });
+      }
+
+
+      if (interaction.commandName === 'addstatus') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use this command.',
+            flags: EPHEMERAL,
+          });
+        }
+        await interaction.deferReply();
+        const targetUser = interaction.options.getUser('user') || interaction.user;
+        const note = interaction.options.getString('note', true);
+
+        const profileId = await getProfileIdForUser(guild.id, targetUser.id);
+        const profile = await getOrgProfile(guild.id, targetUser.id);
+
+        if (!profile) {
+          return interaction.editReply({
+            content: `<@${targetUser.id}> does not have an org profile yet.`,
+
+          });
+        }
+
+        const result = addOrgStatus(guild.id, targetUser.id, note);
+
+        if (!result.ok) {
+          if (result.reason === 'status_too_long') {
+            return interaction.reply({
+              content: `Status is too long. Maximum length is ${MAX_NOTE_LENGTH} characters.`,
+              flags: EPHEMERAL,
+            });
+          }
+        }
+
+        await refreshQueueMessage(guild);
+
+        await sendActionLog(
+            guild,
+            `<@${interaction.user.id}> added status:\n> ${note}\nto <@${targetUser.id}>`,
+            null,
+            'note'
+        );
+
+        return interaction.reply({
+          content: `Added status to **<@${targetUser.id}>**. <:9_:1496851117194219600>`,
+
         });
       }
 
