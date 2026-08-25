@@ -25,6 +25,10 @@ function profileCollection(guildId) {
   return firestore.collection('guilds').doc(guildId).collection('buyer_profiles');
 }
 
+function orgProfileCollection(guildId) {
+  return firestore.collection('guilds').doc(guildId).collection('org_profiles');
+}
+
 function linkCollection(guildId) {
   return firestore.collection('guilds').doc(guildId).collection('buyer_profile_links');
 }
@@ -393,7 +397,6 @@ const ALL_FORM_POKEMON = new Set([
   'smeargle',
   'greedent',
   'tangrowth',
-  'ditto',
 ]);
 
 const EEVEE_FAMILY = [
@@ -463,6 +466,7 @@ const REGIONAL_FORM_BASE_POKEMON = new Set([
   'wooper',
   'tauros',
   'snorlax',
+  'ditto',
 ])
 
 const dbPath = process.env.DB_PATH || 'queue.db';
@@ -566,6 +570,20 @@ CREATE TABLE IF NOT EXISTS buyer_profiles (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (guild_id, profile_id)
 );
+
+CREATE TABLE IF NOT EXISTS org_profiles (
+  guild_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  display_user_id TEXT NOT NULL,
+  total_orgs INTEGER NOT NULL DEFAULT 0,
+  last_org TEXT NOT NULL DEFAULT 'never',
+  total_reservers INTEGER NOT NULL DEFAULT 0,
+  last_reserver TEXT NOT NULL DEFAULT 'never',
+  status TEXT NOT NULL DEFAULT 'no status set',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (guild_id, profile_id)
+  );
 
 CREATE TABLE IF NOT EXISTS buyer_awarded_rounds (
   guild_id TEXT NOT NULL,
@@ -1258,10 +1276,14 @@ function recordStaffActivity(
   return result.changes > 0;
 }
 
-function recordFinishedRoundStaffActivity(guildId, roundNumber, finishedBy) {
+function recordFinishedRoundStaffActivity(
+  guildId,
+  roundNumber,
+  finishedBy
+) {
   const now = new Date().toISOString();
 
-  // The person who successfully ran /finish receives the org count.
+  // Person who ran /finish gets the org.
   recordStaffActivity(
     guildId,
     roundNumber,
@@ -1270,8 +1292,11 @@ function recordFinishedRoundStaffActivity(guildId, roundNumber, finishedBy) {
     now
   );
 
-  // The current holder of the reserver slot receives the RP count.
-  const reserverSlot = getSlot(guildId, 'reserver');
+  // Reserver slot holder gets the reserve ping.
+  const reserverSlot = getSlot(
+    guildId,
+    'reserver'
+  );
 
   if (reserverSlot?.user_id) {
     recordStaffActivity(
@@ -1982,6 +2007,240 @@ async function getBuyerProfile(guildId, userId) {
   return doc.exists
     ? doc.data()
     : null;
+}
+
+async function ensureOrgProfile(guildId, userId) {
+  if (!userId) return null;
+
+  const profileId = await getProfileIdForUser(
+    guildId,
+    userId
+  );
+
+  const now = new Date().toISOString();
+
+  if (!useFirebaseProfiles()) {
+    db.prepare(`
+      INSERT OR IGNORE INTO org_profiles
+      (
+        guild_id,
+        profile_id,
+        display_user_id,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      guildId,
+      profileId,
+      profileId,
+      now,
+      now
+    );
+
+    return profileId;
+  }
+
+  const ref = orgProfileCollection(guildId).doc(profileId);
+  const snapshot = await ref.get();
+
+  if (!snapshot.exists) {
+    await ref.set({
+      profile_id: profileId,
+      display_user_id: profileId,
+      status: 'no status set',
+      created_at: now,
+      updated_at: now,
+    });
+  }
+
+  return profileId;
+}
+
+async function getOrgProfile(guildId, userId) {
+  if (!userId) return null;
+
+  const profileId = await getProfileIdForUser(
+    guildId,
+    userId
+  );
+
+  // Get organizer metadata/status
+  let metadata = null;
+
+  if (!useFirebaseProfiles()) {
+    metadata = db.prepare(`
+      SELECT *
+      FROM org_profiles
+      WHERE guild_id = ?
+        AND profile_id = ?
+    `).get(guildId, profileId);
+  } else {
+    const doc = await orgProfileCollection(guildId)
+      .doc(profileId)
+      .get();
+
+    metadata = doc.exists
+      ? doc.data()
+      : null;
+  }
+
+  /*
+   * Pull org/reserver statistics directly from
+   * staff_activity_events.
+   *
+   * All linked accounts belonging to this profile
+   * should count toward the same organizer profile.
+   */
+  const linkedUserIds = new Set([profileId]);
+
+  const linkedAlts = await getLinkedAlts(
+    guildId,
+    profileId
+  );
+
+  for (const alt of linkedAlts) {
+    linkedUserIds.add(alt.user_id);
+  }
+
+  // Also include the user used to request the profile.
+  linkedUserIds.add(userId);
+
+  const ids = [...linkedUserIds];
+
+  const placeholders = ids.map(() => '?').join(', ');
+
+  const stats = db.prepare(`
+    SELECT
+      SUM(
+        CASE
+          WHEN activity_type = 'org'
+          THEN 1
+          ELSE 0
+        END
+      ) AS total_orgs,
+
+      MAX(
+        CASE
+          WHEN activity_type = 'org'
+          THEN created_at
+        END
+      ) AS last_org,
+
+      SUM(
+        CASE
+          WHEN activity_type = 'resping'
+          THEN 1
+          ELSE 0
+        END
+      ) AS total_reservers,
+
+      MAX(
+        CASE
+          WHEN activity_type = 'resping'
+          THEN created_at
+        END
+      ) AS last_reserver
+
+    FROM staff_activity_events
+
+    WHERE guild_id = ?
+      AND user_id IN (${placeholders})
+  `).get(
+    guildId,
+    ...ids
+  );
+
+  const hasActivity =
+    Number(stats?.total_orgs || 0) > 0 ||
+    Number(stats?.total_reservers || 0) > 0;
+
+  /*
+   * No metadata and no historical activity =
+   * this person genuinely has no organizer profile.
+   */
+  if (!metadata && !hasActivity) {
+    return null;
+  }
+
+  return {
+    profile_id: profileId,
+    display_user_id:
+      metadata?.display_user_id || profileId,
+
+    total_orgs:
+      Number(stats?.total_orgs || 0),
+
+    last_org:
+      stats?.last_org || 'never',
+
+    total_reservers:
+      Number(stats?.total_reservers || 0),
+
+    last_reserver:
+      stats?.last_reserver || 'never',
+
+    status:
+      metadata?.status || 'no status set',
+
+    created_at:
+      metadata?.created_at || null,
+
+    updated_at:
+      metadata?.updated_at || null,
+  };
+}
+
+
+async function addOrgStatus(guildId, userId, noteText) {
+  const profileId = await ensureOrgProfile(
+    guildId,
+    userId
+  );
+
+  const now = new Date().toISOString();
+
+  let trimmedNote = noteText.trim();
+
+  if (!trimmedNote.length) {
+    trimmedNote = 'no status set';
+  }
+
+  if (trimmedNote.length > MAX_NOTE_LENGTH) {
+    return {
+      ok: false,
+      reason: 'note_too_long',
+    };
+  }
+
+  if (!useFirebaseProfiles()) {
+    db.prepare(`
+      UPDATE org_profiles
+      SET status = ?,
+          updated_at = ?
+      WHERE guild_id = ?
+        AND profile_id = ?
+    `).run(
+      trimmedNote,
+      now,
+      guildId,
+      profileId
+    );
+
+    return { ok: true };
+  }
+
+  const ref = orgProfileCollection(guildId)
+    .doc(profileId);
+
+  await ref.set({
+    status: trimmedNote,
+    updated_at: now,
+  }, {
+    merge: true,
+  });
+
+  return { ok: true };
 }
 
 async function getLinkedAlts(guildId, profileId) {
@@ -7150,6 +7409,27 @@ const commands = [
     ),
 
   new SlashCommandBuilder()
+    .setName('orgprofile')
+    .setDescription('View organizer profile.')
+    .addUserOption(option =>
+        option
+            .setName('user')
+            .setDescription('User to view')
+            .setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+      .setName('addstatus')
+      .setDescription('Set status of an org. Max 70 characters.')
+      .addUserOption(option =>
+              option
+                  .setName('user')
+                  .setDescription('User to add note to')
+                  .setRequired(false)
+      )
+      .addStringOption((option) => option.setName('note').setDescription('Short note').setRequired(true)),
+
+  new SlashCommandBuilder()
     .setName('removeresult')
     .setDescription('Remove Pokémon from a user after finish')
     .addUserOption(option =>
@@ -8822,6 +9102,97 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.editReply({
           embeds: [embed],
+        });
+      }
+
+      if (interaction.commandName === 'orgprofile') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use this command.',
+            flags: EPHEMERAL,
+          });
+        }
+        await interaction.deferReply();
+        const targetUser = interaction.options.getUser('user') || interaction.user;
+
+        const profileId = await getProfileIdForUser(guild.id, targetUser.id);
+        const mainText = `<@${profileId}>`;
+        const profile = await getOrgProfile(guild.id, targetUser.id);
+
+        if (!profile) {
+          return interaction.editReply({
+            content: `<@${targetUser.id}> does not have an org profile yet.`,
+
+          });
+        }
+
+        const linkedAlts = (await getLinkedAlts(guild.id, profileId))
+            .map((row) => `<@${row.user_id}>`)
+            .join(', ') || 'None';
+
+        const embed = new EmbedBuilder()
+            .setTitle(`${targetUser.username}'s Organizer Profile`)
+            .setColor(0xB6FFD8)
+            .addFields(
+                { name: 'Total Orgs', value: String(profile.total_orgs), inline: true },
+                { name: 'Last Org', value: String(profile.last_org), inline: true },
+                { name: 'Total Reservers', value: String(profile.total_reservers), inline: true },
+                { name: 'Last Reserver', value: String(profile.last_reserver), inline: true },
+                { name: 'Status', value: String(profile.status), inline: true },
+                { name: 'Main Profile', value: mainText, inline: false },
+                { name: 'Linked Alts', value: linkedAlts, inline: false }
+            )
+            .setTimestamp();
+
+        return interaction.editReply({
+          embeds: [embed],
+        });
+      }
+
+
+      if (interaction.commandName === 'addstatus') {
+        if (!hasStaffRole(interaction.member)) {
+          return interaction.reply({
+            content: 'Only staff can use this command.',
+            flags: EPHEMERAL,
+          });
+        }
+        await interaction.deferReply();
+        const targetUser = interaction.options.getUser('user') || interaction.user;
+        const note = interaction.options.getString('note', true);
+
+        const profileId = await getProfileIdForUser(guild.id, targetUser.id);
+        const profile = await getOrgProfile(guild.id, targetUser.id);
+
+        if (!profile) {
+          return interaction.editReply({
+            content: `<@${targetUser.id}> does not have an org profile yet.`,
+
+          });
+        }
+
+        const result = await addOrgStatus(guild.id, targetUser.id, note);
+
+        if (!result.ok) {
+          if (result.reason === 'note_too_long') {
+            return interaction.editReply({
+              content: `Status is too long. Maximum length is ${MAX_NOTE_LENGTH} characters.`,
+            });
+          }
+        }
+
+        await refreshQueueMessage(guild);
+
+        await sendActionLog(
+            guild,
+            `<@${interaction.user.id}> added status:\n> ${note}\nto <@${targetUser.id}>`,
+            null,
+            'note'
+        );
+
+        return interaction.reply({
+          content: `Added status to **<@${targetUser.id}>**. <:9_:1496851117194219600>`,
+
         });
       }
 
