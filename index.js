@@ -7419,15 +7419,20 @@ const commands = [
     ),
 
   new SlashCommandBuilder()
-      .setName('addstatus')
-      .setDescription('Set status of an org. Max 70 characters.')
-      .addUserOption(option =>
-              option
-                  .setName('user')
-                  .setDescription('User to add note to')
-                  .setRequired(false)
-      )
-      .addStringOption((option) => option.setName('note').setDescription('Short note').setRequired(true)),
+    .setName('addstatus')
+    .setDescription('Set status of an org. Max 70 characters.')
+    .addStringOption(option =>
+      option
+        .setName('note')
+        .setDescription('Short note')
+        .setRequired(true)
+    )
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('User to add note to')
+        .setRequired(false)
+    ),
 
   new SlashCommandBuilder()
     .setName('removeresult')
