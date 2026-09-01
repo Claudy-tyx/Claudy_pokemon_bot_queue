@@ -1,14 +1,5 @@
 const CHOICE_GROUP_RARES = {
 
-  pride: [
-    'Alolan muk',
-    'Galarian Ponyta',
-    'Galarian Stunfisk',
-    'Galarian Yamask',
-    'Cosmog',
-    'Xerneas',
-  ],
-
   jenn: [
     'galarian darumaka',
     'manaphy',
@@ -44,12 +35,6 @@ const CHOICE_GROUP_RARES = {
     'virizion',
   ],
 
-  paper: [
-    'chi-yu',
-    'diancie',
-    'slither wing',
-  ],
-
   lils: [
     'pheromosa',
     'sneasler',
@@ -60,6 +45,19 @@ const CHOICE_GROUP_RARES = {
     'hisuian lilligant',
     'arceus',
     'silvally',
+  ],
+
+  serp: [
+    'zeraora',
+    'tapu lele',
+    'diancie',
+  ],
+
+  swan: [
+    'galarian ponyta',
+    'paldean wooper',
+    'nihilego',
+    'terapagos',
   ],
 
   chaching: [
