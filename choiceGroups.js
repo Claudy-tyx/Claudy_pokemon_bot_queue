@@ -1,20 +1,5 @@
 const CHOICE_GROUPS = {
 
-  pride: [
-    'Aegislash', 
-    'Bruxish', 
-    'Drifloon', 
-    'Gardevoir', 
-    'Goomy', 
-    'Jynx', 
-    'Masquerain', 
-    'Milotic', 
-    'Porygon', 
-    'Quaquaval', 
-    'Quaxwell', 
-    'Shedinja'
-  ],
-
   jenn: [
     'carbink',
     'cryogonal',
@@ -115,6 +100,48 @@ const CHOICE_GROUPS = {
     'salandit'
   ],
 
+  serp: [
+    'espurr',
+    'furfrou',
+    'lilligant',
+    'peakychu',
+    'dragonair',
+    'swirlix',
+    'mienshao',
+    'furret',
+    'luxray',
+    'comfey',
+    'whimsicott',
+    'lucario',
+    'lycanroc',
+    'froslass',
+    'primarina',
+    'lopunny',
+    'eiscue'
+  ],
+
+  swan: [
+    'arboliva',
+    'bounsweet',
+    'buneary',
+    'carbink',
+    'chef dente',
+    'eiscue',
+    'emolga',
+    'florges',
+    'furret',
+    'gothorita',
+    'maractus',
+    'mawile',
+    'meowstic',
+    'milcery',
+    'sinistea',
+    'smoochum',
+    'spinda',
+    'swanna',
+    'yungoos'
+  ],
+
   lils: [
     'aromatisse',
     'bruxish', 
@@ -142,21 +169,6 @@ const CHOICE_GROUPS = {
     'vespiquen', 
     'weavile'
   ], 
-
-  
-  paper: [
-    'carbink',
-    'cutiefly',
-    'galvantula',
-    'joltik',
-    'minccino',
-    'oricorio',
-    'shellos',
-    'smoliv',
-    'spinarak',
-    'tarountula',
-    'vivillon'
-  ],
 
   quests: [
     'chinchou',
