@@ -240,7 +240,10 @@ const CHOICE_GROUPS = {
   'minior',
   'pincurchin',
   'surskit',
-  'wooloo'
+  'wooloo',
+  'pignite',
+  'pumpkaboo',
+  'sandygast'
 ],
 
   blue: [
