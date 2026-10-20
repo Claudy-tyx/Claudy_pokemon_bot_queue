@@ -4,3 +4,5 @@ queue.db
 queue.db-shm
 queue.db-wal
 main
+.DS_Store
+eeveebot-504215-e82d7110bbd5.json

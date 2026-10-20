@@ -513,6 +513,24 @@ const CHOICE_GROUPS = {
     'wormadam'
   ],
 
+  dragons: [
+    'dragonair',
+    'dragonite',
+    'drampa',
+    'dratini',
+    'druddigon',
+    'fraxure',
+    'flygon',
+    'gabite',
+    'garchomp',
+    'gible',
+    'haxorus',
+    'hakamo-k',
+    'hydreigon',
+    'kommo-o',
+    'salamence'
+  ],
+
   fossils: [
     'aerodactyl',
     'amaura',

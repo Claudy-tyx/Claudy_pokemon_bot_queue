@@ -271,6 +271,12 @@ const CHOICE_GROUP_RARES = {
     'moltres',
   ],
 
+  dragons: [
+    'reshiram',
+    'zekrom',
+    'hisuian goodra',
+  ],
+
   balls: [
     'hisuian voltorb',
     'guzzlord',
