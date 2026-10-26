@@ -258,6 +258,13 @@ const CHOICE_GROUP_RARES = {
     'mesprit',
   ],
 
+  spookies2: [
+    'darkrai',
+    'giratina',
+    'hisuian zoroark',
+    'necrozma',
+  ],
+
   bears: [
     'obstagoon',
     'kubfu',

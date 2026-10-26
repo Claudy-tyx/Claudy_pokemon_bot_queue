@@ -528,7 +528,9 @@ const CHOICE_GROUPS = {
     'hakamo-k',
     'hydreigon',
     'kommo-o',
-    'salamence'
+    'salamence',
+    'axew',
+    'bagon',
   ],
 
   fossils: [
@@ -735,7 +737,8 @@ const CHOICE_GROUPS = {
     'normal pikachu',
     'plusle',
     'raichu',
-    'togedemaru'
+    'togedemaru',
+    'peakychu',
   ],
 
   spookies: [
@@ -750,6 +753,23 @@ const CHOICE_GROUPS = {
     'mimikyu',
     'spiritomb',
     'trevenant'
+  ],
+
+  spookies2: [
+    'abra',
+    'banette',
+    'drifloon',
+    'honchkrow',
+    'honedge',
+    'mandibuzz',
+    'mawile',
+    'mimikyu',
+    'noibat',
+    'murkrow',
+    'phantump',
+    'sableye',
+    'shuppet',
+    'spinarak',
   ],
 
   bears: [
