@@ -182,55 +182,39 @@ const MONITORED_CHANNELS = [
 
 const EPHEMERAL = 64;
 
-const EVENT_QUEUE_ENABLED = false;
+const EVENT_QUEUE_ENABLED = true;
 
 // @Proud Amsterdammer Pyroar @Proud Paulistano Luxray @Proud New Yorker Braviary @Pride Flag Vivillon@Proud Taipeier Ursaring @Proud Sydneysider Komala
 const EVENT_SLOT_CONFIG = [
   {
     key: 'event1',
-    label: 'Proud Pyroar',
-    fixedPokemon: 'Proud Amsterdammer Pyroar',
+    label: 'Event Reuniclus',
+    fixedPokemon: 'Elixir Reuniclus, Cauldron Reuniclus',
     buyerRoleEnv: 'EVENT1_BUYER_ROLE_ID',
     maxPokemon: 2,
   },
 
   {
     key: 'event2',
-    label: 'Proud Luxray',
-    fixedPokemon: 'Proud Paulistano Luxray',
+    label: 'Event Meowscarada',
+    fixedPokemon: 'Oracle Meowscarada, Witch Meowscarada',
     buyerRoleEnv: 'EVENT2_BUYER_ROLE_ID',
     maxPokemon: 2,
   },
 
   {
     key: 'event3',
-    label: 'Proud Braviary',
-    fixedPokemon: 'Proud New Yorker Braviary',
+    label: 'Event Simipour',
+    fixedPokemon: 'Medusa Simipour, Statue Simipour',
     buyerRoleEnv: 'EVENT3_BUYER_ROLE_ID',
     maxPokemon: 2,
   },
 
   {
     key: 'event4',
-    label: 'Pride Vivillon',
-    fixedPokemon: 'Alloace Flag Vivillon, Androgyne Flag Vivillon, Androsexual Flag Vivillon, Aroace Flag Vivillon, Aromantic Flag Vivillon, Asexual Flag Vivillon, Autoromantic Flag Vivillon, Bisexual Flag Vivillon, Demiromantic Flag Vivillon, Demisexual Flag Vivillon, Desinoromantic Flag Vivillon, Gay Flag Vivillon, Gender Creative Flag Vivillon, Genderfluid Flag Vivillon, Genderqueer Flag Vivillon, Gynsexual Flag Vivillon, Lesbian Flag Vivillon, Maverique Flag Vivillon, Neutrois Flag Vivillon, Non-Binary Flag Vivillon, Pansexual Flag Vivillon, Polysexual Flag Vivillon, Pride Flag Vivillon, Queer Flag Vivillon, Transgender Flag Vivillon',
+    label: 'Event Applin',
+    fixedPokemon: 'Enchanted Applin, Rotten Applin',
     buyerRoleEnv: 'EVENT4_BUYER_ROLE_ID',
-    maxPokemon: 2,
-  },
-
-  {
-    key: 'event5',
-    label: 'Proud Ursaring',
-    fixedPokemon: 'Proud Taipeier Ursaring',
-    buyerRoleEnv: 'EVENT5_BUYER_ROLE_ID',
-    maxPokemon: 2,
-  },
-
-  {
-    key: 'event6',
-    label: 'Proud Komala',
-    fixedPokemon: 'Proud Sydneysider Komala',
-    buyerRoleEnv: 'EVENT6_BUYER_ROLE_ID',
     maxPokemon: 2,
   },
   // add event3 / event4 later if needed
