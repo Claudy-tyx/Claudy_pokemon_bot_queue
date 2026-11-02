@@ -5881,9 +5881,8 @@ function buildQueueEmbedFromSlots(slots, options = {}) {
     eventSlots.forEach((slot) => {
       let value = buildSlotValue(slot);
 
-      // Keep the full Vivillon list internally,
-      // but shorten how it appears in the queue embed.
-      if (slot.slot_key === 'event4') {
+      // This is for shortening certain names in embed
+      if (slot.slot_key === 'event10') {
 			  const owner = slot.user_id
 			    ? `<@${slot.user_id}>`
 			    : 'Open';
