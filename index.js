@@ -332,6 +332,14 @@ const FIXED_REMOVE_TAIL = [
   'Regional',
   'Gmax',
   'Paradox',
+  'oracle meowscarada',
+  'witch meowscarada',
+  'statue simipour',
+  'medusa simipour',
+  'enchanted applin',
+  'rotten applin',
+  'elixir reuniclus',
+  'cauldron reuniclus',
 ];
 
 const ALL_FORM_POKEMON = new Set([
