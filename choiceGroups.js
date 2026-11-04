@@ -171,17 +171,16 @@ const CHOICE_GROUPS = {
   ], 
 
   quests: [
-    'abra',
+    'doublade',
     'chinchou',
     'cubchoo',
     'dachsbun',
     'hakamo-o',
-    'rhyhorn',
+    'rhydon',
     'nuzleaf',
-    'scorbunny',
-    'starly',
+    'raboot',
+    'staravia',
     'whirlipede',
-    'doublade',
   ],
 
   chaching : [
