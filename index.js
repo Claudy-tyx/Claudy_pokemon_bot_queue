@@ -390,6 +390,10 @@ const ALL_FORM_POKEMON = new Set([
   'smeargle',
   'greedent',
   'tangrowth',
+  'simipour',
+  'reuniclus',
+  'applin',
+  'meowscarada',
 ]);
 
 const EEVEE_FAMILY = [
